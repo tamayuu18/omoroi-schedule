@@ -1,58 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getAvailableSlots } from '@/lib/google-calendar'
+import { parseISO } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const slug = searchParams.get('slug')
+  const pageId = searchParams.get('pageId')
   const dateStr = searchParams.get('date')
 
-  if (!slug || !dateStr) {
-    return NextResponse.json({ error: 'slug and date are required' }, { status: 400 })
+  if (!pageId || !dateStr) {
+    return NextResponse.json({ error: 'pageId and date are required' }, { status: 400 })
   }
 
-  const supabase = createServiceClient()
+  try {
+    const supabase = createServiceClient()
 
-  const { data: page, error } = await supabase
-    .from('booking_pages')
-    .select('*, booking_page_staff(staff(id, name, google_refresh_token, google_calendar_id))')
-    .eq('slug', slug)
-    .eq('is_active', true)
-    .single()
+    // Fetch booking page with staff
+    const { data: page, error: pageError } = await supabase
+      .from('booking_pages')
+      .select('*, booking_page_staff(staff(*))')
+      .eq('id', pageId)
+      .single()
 
-  if (error || !page) {
-    return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
+    if (pageError || !page) {
+      return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
+    }
+
+    const staffList = (page.booking_page_staff ?? [])
+      .map((bps: any) => bps.staff)
+      .filter(Boolean)
+      .filter((s: any) => s.is_active)
+
+    // Parse the date in JST
+    const date = toZonedTime(parseISO(dateStr), 'Asia/Tokyo')
+
+    const slots = await getAvailableSlots(
+      staffList,
+      date,
+      page.duration_minutes,
+      page.available_start_hour,
+      page.available_end_hour
+    )
+
+    return NextResponse.json({
+      slots: slots.map((s) => ({
+        time: s.time.toISOString(),
+        staffId: s.staffId,
+        staffName: s.staffName,
+      })),
+    })
+  } catch (error) {
+    console.error('Availability error:', error)
+    return NextResponse.json({ error: 'Failed to fetch availability' }, { status: 500 })
   }
-
-  const date = new Date(dateStr)
-  const dayOfWeek = date.getDay()
-
-  if (!page.available_days.includes(dayOfWeek)) {
-    return NextResponse.json({ slots: [] })
-  }
-
-  const staffList = page.booking_page_staff
-    .map((bps: any) => bps.staff)
-    .filter((s: any) => s && s.google_refresh_token)
-
-  if (!staffList.length) {
-    return NextResponse.json({ slots: [] })
-  }
-
-  const slots = await getAvailableSlots(
-    staffList,
-    date,
-    page.duration_minutes,
-    page.available_start_hour,
-    page.available_end_hour
-  )
-
-  // Serialize Date objects to ISO strings for JSON response
-  const serialized = slots.map((s) => ({
-    time: s.time instanceof Date ? s.time.toISOString() : s.time,
-    staffId: s.staffId,
-    staffName: s.staffName,
-  }))
-
-  return NextResponse.json({ slots: serialized })
 }

@@ -1,113 +1,123 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createCalendarEvent } from '@/lib/google-calendar'
-import { addMinutes } from 'date-fns'
-
-export async function GET() {
-  const supabase = createServiceClient()
-  const { data: bookings, error } = await supabase
-    .from('bookings')
-    .select('*, staff(name), booking_page:booking_pages(title)')
-    .order('start_time', { ascending: false })
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ bookings })
-}
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { slug, staffId, slotTime, name, email, phone, note } = body
-
-  if (!slug || !staffId || !slotTime || !name || !email) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-  }
-
-  const supabase = createServiceClient()
-
-  // Fetch booking page
-  const { data: page, error: pageError } = await supabase
-    .from('booking_pages')
-    .select('*, booking_page_staff(staff(id, name, google_calendar_id))')
-    .eq('slug', slug)
-    .single()
-
-  if (pageError || !page) {
-    return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
-  }
-
-  const staffInfo = page.booking_page_staff
-    .map((bps: any) => bps.staff)
-    .find((s: any) => s?.id === staffId)
-
-  if (!staffInfo) {
-    return NextResponse.json({ error: 'Staff not found for this page' }, { status: 404 })
-  }
-
-  const startTime = new Date(slotTime)
-  const endTime = addMinutes(startTime, page.duration_minutes)
-
-  // Upsert CRM contact
-  let contactId: string | null = null
-  const { data: existingContact } = await supabase
-    .from('contacts')
-    .select('id')
-    .eq('email', email)
-    .single()
-
-  if (existingContact) {
-    contactId = existingContact.id
-  } else {
-    const { data: newContact } = await supabase
-      .from('contacts')
-      .insert({ name, email, phone: phone || null, source: 'booking' })
-      .select('id')
-      .single()
-    contactId = newContact?.id || null
-  }
-
-  // Create Google Calendar event
-  let googleEventId: string | null = null
-  let googleMeetLink: string | null = null
   try {
-    const result = await createCalendarEvent(staffId, {
-      staffId,
-      startTime,
-      endTime,
-      candidateName: name,
-      candidateEmail: email,
-      candidatePhone: phone || undefined,
-      candidateNote: note || undefined,
-      bookingPageTitle: page.title,
-      bookingPageId: page.id,
-    })
-    googleEventId = result.eventId
-    googleMeetLink = result.meetLink
-  } catch (err) {
-    console.error('Google Calendar event creation failed:', err)
+    const body = await req.json()
+    const { pageId, slotTime, staffId, name, email, phone, note } = body
+
+    if (!pageId || !slotTime || !staffId || !name || !email) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const supabase = createServiceClient()
+
+    // Fetch booking page for duration and title
+    const { data: page } = await supabase
+      .from('booking_pages')
+      .select('duration_minutes, title')
+      .eq('id', pageId)
+      .single()
+
+    if (!page) {
+      return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
+    }
+
+    const startTime = new Date(slotTime)
+    const endTime = new Date(startTime.getTime() + page.duration_minutes * 60 * 1000)
+
+    // Upsert contact (CRM integration)
+    let contactId: string | null = null
+    const { data: existingContact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('email', email)
+      .single()
+
+    if (existingContact) {
+      contactId = existingContact.id
+      await supabase.from('contacts').update({ updated_at: new Date().toISOString() }).eq('id', contactId)
+    } else {
+      const { data: newContact } = await supabase
+        .from('contacts')
+        .insert({ name, email, phone: phone || null, source: 'booking' })
+        .select('id')
+        .single()
+      contactId = newContact?.id ?? null
+    }
+
+    // Create Google Calendar event
+    let googleEventId: string | null = null
+    let googleMeetLink: string | null = null
+    try {
+      const eventResult = await createCalendarEvent(staffId, {
+        staffId,
+        startTime,
+        endTime,
+        candidateName: name,
+        candidateEmail: email,
+        candidatePhone: phone,
+        candidateNote: note,
+        bookingPageTitle: page.title,
+        bookingPageId: pageId,
+      })
+      googleEventId = eventResult.eventId
+      googleMeetLink = eventResult.meetLink
+    } catch (calErr) {
+      console.error('Google Calendar error (non-fatal):', calErr)
+    }
+
+    // Create booking
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .insert({
+        booking_page_id: pageId,
+        staff_id: staffId,
+        contact_id: contactId,
+        candidate_name: name,
+        candidate_email: email,
+        candidate_phone: phone || null,
+        candidate_note: note || null,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        google_event_id: googleEventId,
+        google_meet_link: googleMeetLink,
+        status: 'confirmed',
+      })
+      .select()
+      .single()
+
+    if (bookingError) {
+      console.error('Booking insert error:', bookingError)
+      return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
+    }
+
+    return NextResponse.json({ booking })
+  } catch (error) {
+    console.error('Booking error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
+}
 
-  // Create booking
-  const { data: booking, error: bookingError } = await supabase
-    .from('bookings')
-    .insert({
-      booking_page_id: page.id,
-      staff_id: staffId,
-      contact_id: contactId,
-      candidate_name: name,
-      candidate_email: email,
-      candidate_phone: phone || null,
-      candidate_note: note || null,
-      start_time: startTime.toISOString(),
-      end_time: endTime.toISOString(),
-      google_event_id: googleEventId,
-      google_meet_link: googleMeetLink,
-    })
-    .select()
-    .single()
+export async function GET(req: NextRequest) {
+  try {
+    const supabase = createServiceClient()
+    const { searchParams } = new URL(req.url)
+    const pageId = searchParams.get('pageId')
 
-  if (bookingError) {
-    return NextResponse.json({ error: bookingError.message }, { status: 500 })
+    let query = supabase
+      .from('bookings')
+      .select('*, staff(name), booking_pages(title)')
+      .order('start_time', { ascending: false })
+
+    if (pageId) query = query.eq('booking_page_id', pageId)
+
+    const { data: bookings, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    return NextResponse.json({ bookings })
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  return NextResponse.json({ booking, googleMeetLink }, { status: 201 })
 }

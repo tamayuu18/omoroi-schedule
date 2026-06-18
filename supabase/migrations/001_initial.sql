@@ -65,29 +65,15 @@ create table if not exists bookings (
   created_at timestamptz default now()
 );
 
--- RLS 有効化
+-- RLS policies
 alter table staff enable row level security;
 alter table booking_pages enable row level security;
 alter table booking_page_staff enable row level security;
 alter table bookings enable row level security;
 alter table contacts enable row level security;
 
--- サービスロールに全アクセス許可
-create policy "service full access staff" on staff for all using (true);
-create policy "service full access booking_pages" on booking_pages for all using (true);
-create policy "service full access booking_page_staff" on booking_page_staff for all using (true);
-create policy "service full access bookings" on bookings for all using (true);
-create policy "service full access contacts" on contacts for all using (true);
-
--- contacts の updated_at 自動更新
-create or replace function update_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
-
-create trigger contacts_updated_at
-  before update on contacts
-  for each row execute function update_updated_at();
+create policy "service role full access on staff" on staff for all using (true);
+create policy "service role full access on booking_pages" on booking_pages for all using (true);
+create policy "service role full access on booking_page_staff" on booking_page_staff for all using (true);
+create policy "service role full access on bookings" on bookings for all using (true);
+create policy "service role full access on contacts" on contacts for all using (true);

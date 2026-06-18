@@ -9,6 +9,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'staffId is required' }, { status: 400 })
   }
 
-  const url = getAuthUrl(staffId)
-  return NextResponse.redirect(url)
+  const authUrl = getAuthUrl(staffId)
+  return NextResponse.redirect(authUrl)
 }
