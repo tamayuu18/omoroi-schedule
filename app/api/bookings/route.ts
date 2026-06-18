@@ -69,18 +69,17 @@ export async function POST(req: NextRequest) {
   let googleEventId: string | null = null
   let googleMeetLink: string | null = null
   try {
-    const result = await createCalendarEvent(
+    const result = await createCalendarEvent(staffId, {
       staffId,
-      staffInfo.google_calendar_id || 'primary',
-      {
-        title: `【面談】${name} - ${page.title}`,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        candidateName: name,
-        candidateEmail: email,
-        note: note || '',
-      }
-    )
+      startTime,
+      endTime,
+      candidateName: name,
+      candidateEmail: email,
+      candidatePhone: phone || undefined,
+      candidateNote: note || undefined,
+      bookingPageTitle: page.title,
+      bookingPageId: page.id,
+    })
     googleEventId = result.eventId
     googleMeetLink = result.meetLink
   } catch (err) {

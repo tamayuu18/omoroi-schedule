@@ -26,6 +26,25 @@ export interface BookingPage {
   staff?: Staff[]
 }
 
+export interface Booking {
+  id: string
+  booking_page_id: string
+  staff_id: string
+  contact_id: string
+  candidate_name: string
+  candidate_email: string
+  candidate_phone: string | null
+  candidate_note: string | null
+  start_time: string
+  end_time: string
+  google_event_id: string | null
+  google_meet_link: string | null
+  status: string
+  created_at: string
+  staff?: Staff
+  booking_pages?: BookingPage
+}
+
 export interface Contact {
   id: string
   name: string
@@ -38,38 +57,20 @@ export interface Contact {
   updated_at: string
 }
 
-export interface Booking {
-  id: string
-  booking_page_id: string
-  staff_id: string
-  contact_id: string | null
-  candidate_name: string
-  candidate_email: string
-  candidate_phone: string | null
-  candidate_note: string | null
-  start_time: string
-  end_time: string
-  google_event_id: string | null
-  google_meet_link: string | null
-  status: string
-  created_at: string
-  staff?: Staff
-  booking_page?: BookingPage
-  contact?: Contact
-}
-
 export interface TimeSlot {
-  time: string
+  time: Date
   staffId: string
   staffName: string
 }
 
-export interface CreateBookingInput {
-  pageId: string
-  slotTime: string
+export interface BookingData {
   staffId: string
-  name: string
-  email: string
-  phone?: string
-  note?: string
+  startTime: Date
+  endTime: Date
+  candidateName: string
+  candidateEmail: string
+  candidatePhone?: string
+  candidateNote?: string
+  bookingPageTitle: string
+  bookingPageId: string
 }

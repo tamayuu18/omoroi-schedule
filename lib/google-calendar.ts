@@ -1,12 +1,14 @@
 import { google } from 'googleapis'
 import { createServiceClient } from './supabase/server'
+import type { BookingData } from './types'
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar']
+const JST = 'Asia/Tokyo'
 
 export function getOAuthClient() {
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
     `${process.env.NEXT_PUBLIC_APP_URL}/api/google/callback`
   )
 }
@@ -27,161 +29,146 @@ export async function exchangeCodeForTokens(code: string) {
   return tokens
 }
 
-async function getAuthenticatedClient(staffId: string) {
+async function getAuthClientForStaff(staffId: string) {
   const supabase = createServiceClient()
-  const { data: staff } = await supabase
+  const { data: staff, error } = await supabase
     .from('staff')
-    .select('google_access_token, google_refresh_token, google_token_expiry')
+    .select('*')
     .eq('id', staffId)
     .single()
 
-  if (!staff?.google_refresh_token) {
-    throw new Error(`Staff ${staffId} has no Google Calendar connected`)
-  }
+  if (error || !staff) throw new Error(`Staff not found: ${staffId}`)
+  if (!staff.google_refresh_token) throw new Error(`Staff ${staffId} has no Google token`)
 
   const oauth2Client = getOAuthClient()
   oauth2Client.setCredentials({
     access_token: staff.google_access_token,
     refresh_token: staff.google_refresh_token,
-    expiry_date: staff.google_token_expiry
-      ? new Date(staff.google_token_expiry).getTime()
-      : undefined,
+    expiry_date: staff.google_token_expiry ? new Date(staff.google_token_expiry).getTime() : undefined,
   })
 
-  // Auto-refresh and save new token
+  // Auto-refresh and save updated token
   oauth2Client.on('tokens', async (tokens) => {
-    if (tokens.access_token) {
-      await supabase
-        .from('staff')
-        .update({
-          google_access_token: tokens.access_token,
-          google_token_expiry: tokens.expiry_date
-            ? new Date(tokens.expiry_date).toISOString()
-            : null,
-        })
-        .eq('id', staffId)
+    const updates: Record<string, string | null> = {}
+    if (tokens.access_token) updates.google_access_token = tokens.access_token
+    if (tokens.expiry_date) updates.google_token_expiry = new Date(tokens.expiry_date).toISOString()
+    if (Object.keys(updates).length > 0) {
+      await supabase.from('staff').update(updates).eq('id', staffId)
     }
   })
 
-  return oauth2Client
+  return { oauth2Client, calendarId: staff.google_calendar_id || 'primary' }
+}
+
+export interface AvailableSlot {
+  time: Date
+  staffId: string
+  staffName: string
 }
 
 export async function getAvailableSlots(
-  staffList: Array<{ id: string; name: string; google_calendar_id: string }>,
+  staffList: Array<{ id: string; name: string; google_refresh_token: string | null; google_calendar_id: string }>,
   date: Date,
   durationMinutes: number,
   startHour: number,
   endHour: number
-): Promise<Array<{ time: string; staffId: string; staffName: string }>> {
-  const TZ = 'Asia/Tokyo'
-
-  // Build time range for the day
+): Promise<AvailableSlot[]> {
+  // Build time range for the day in JST
   const dayStart = new Date(date)
   dayStart.setHours(startHour, 0, 0, 0)
   const dayEnd = new Date(date)
   dayEnd.setHours(endHour, 0, 0, 0)
 
-  // Gather busy intervals per staff
-  const busyByStaff = new Map<string, Array<{ start: Date; end: Date }>>()
+  // Fetch busy intervals for each staff
+  const staffBusyMap: Record<string, Array<{ start: Date; end: Date }>> = {}
 
   await Promise.all(
-    staffList.map(async (staff) => {
-      try {
-        const auth = await getAuthenticatedClient(staff.id)
-        const calendar = google.calendar({ version: 'v3', auth })
-
-        const freebusyRes = await calendar.freebusy.query({
-          requestBody: {
-            timeMin: dayStart.toISOString(),
-            timeMax: dayEnd.toISOString(),
-            timeZone: TZ,
-            items: [{ id: staff.google_calendar_id || 'primary' }],
-          },
-        })
-
-        const busy =
-          freebusyRes.data.calendars?.[staff.google_calendar_id || 'primary']
-            ?.busy || []
-
-        busyByStaff.set(
-          staff.id,
-          busy.map((b) => ({
+    staffList
+      .filter((s) => s.google_refresh_token)
+      .map(async (staff) => {
+        try {
+          const { oauth2Client, calendarId } = await getAuthClientForStaff(staff.id)
+          const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+          const freeBusyResp = await calendar.freebusy.query({
+            requestBody: {
+              timeMin: dayStart.toISOString(),
+              timeMax: dayEnd.toISOString(),
+              timeZone: JST,
+              items: [{ id: calendarId }],
+            },
+          })
+          const busy = freeBusyResp.data.calendars?.[calendarId]?.busy ?? []
+          staffBusyMap[staff.id] = busy.map((b) => ({
             start: new Date(b.start!),
             end: new Date(b.end!),
           }))
-        )
-      } catch {
-        // Staff not connected - treat as fully busy (no slots)
-        busyByStaff.set(staff.id, [
-          { start: new Date(dayStart), end: new Date(dayEnd) },
-        ])
-      }
-    })
+        } catch {
+          staffBusyMap[staff.id] = []
+        }
+      })
   )
 
+  // Also fetch existing DB bookings to mark as busy
+  const supabase = createServiceClient()
+  const { data: existingBookings } = await supabase
+    .from('bookings')
+    .select('staff_id, start_time, end_time')
+    .gte('start_time', dayStart.toISOString())
+    .lt('start_time', dayEnd.toISOString())
+    .eq('status', 'confirmed')
+
+  for (const booking of existingBookings ?? []) {
+    const staffId = booking.staff_id
+    if (!staffBusyMap[staffId]) staffBusyMap[staffId] = []
+    staffBusyMap[staffId].push({
+      start: new Date(booking.start_time),
+      end: new Date(booking.end_time),
+    })
+  }
+
   // Generate slots
-  const slots: Array<{ time: string; staffId: string; staffName: string }> = []
-  const slotMs = durationMinutes * 60 * 1000
-  const now = new Date()
+  const slots: AvailableSlot[] = []
+  const slotTime = new Date(dayStart)
 
-  for (
-    let slotStart = new Date(dayStart);
-    slotStart.getTime() + slotMs <= dayEnd.getTime();
-    slotStart = new Date(slotStart.getTime() + slotMs)
-  ) {
-    if (slotStart <= now) continue
-
-    const slotEnd = new Date(slotStart.getTime() + slotMs)
+  while (slotTime < dayEnd) {
+    const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
+    if (slotEnd > dayEnd) break
 
     // Find first available staff for this slot
-    for (const staff of staffList) {
-      const busy = busyByStaff.get(staff.id) || []
-      const isAvailable = !busy.some(
-        (b) => b.start < slotEnd && b.end > slotStart
+    for (const staff of staffList.filter((s) => s.google_refresh_token)) {
+      const busy = staffBusyMap[staff.id] ?? []
+      const isBusy = busy.some(
+        (b) => slotTime < b.end && slotEnd > b.start
       )
-
-      if (isAvailable) {
-        slots.push({
-          time: slotStart.toISOString(),
-          staffId: staff.id,
-          staffName: staff.name,
-        })
-        break // One staff per slot is enough
+      if (!isBusy) {
+        slots.push({ time: new Date(slotTime), staffId: staff.id, staffName: staff.name })
+        break
       }
     }
+
+    slotTime.setMinutes(slotTime.getMinutes() + durationMinutes)
   }
 
   return slots
 }
 
-export async function createCalendarEvent(
-  staffId: string,
-  calendarId: string,
-  booking: {
-    title: string
-    startTime: string
-    endTime: string
-    candidateName: string
-    candidateEmail: string
-    note?: string
-  }
-): Promise<{ eventId: string; meetLink: string | null }> {
-  const auth = await getAuthenticatedClient(staffId)
-  const calendar = google.calendar({ version: 'v3', auth })
+export async function createCalendarEvent(staffId: string, booking: BookingData) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
 
   const event = await calendar.events.insert({
-    calendarId: calendarId || 'primary',
+    calendarId,
     conferenceDataVersion: 1,
     requestBody: {
-      summary: booking.title,
-      description: booking.note || '',
+      summary: `面接: ${booking.candidateName}`,
+      description: `${booking.bookingPageTitle}\n\n求職者: ${booking.candidateName}\nEmail: ${booking.candidateEmail}${booking.candidatePhone ? `\n電話: ${booking.candidatePhone}` : ''}${booking.candidateNote ? `\n備考: ${booking.candidateNote}` : ''}`,
       start: {
-        dateTime: booking.startTime,
-        timeZone: 'Asia/Tokyo',
+        dateTime: booking.startTime.toISOString(),
+        timeZone: JST,
       },
       end: {
-        dateTime: booking.endTime,
-        timeZone: 'Asia/Tokyo',
+        dateTime: booking.endTime.toISOString(),
+        timeZone: JST,
       },
       attendees: [{ email: booking.candidateEmail, displayName: booking.candidateName }],
       conferenceData: {
@@ -194,7 +181,7 @@ export async function createCalendarEvent(
   })
 
   return {
-    eventId: event.data.id!,
-    meetLink: event.data.conferenceData?.entryPoints?.[0]?.uri || null,
+    eventId: event.data.id ?? null,
+    meetLink: event.data.conferenceData?.entryPoints?.[0]?.uri ?? null,
   }
 }

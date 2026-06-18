@@ -47,5 +47,12 @@ export async function GET(req: NextRequest) {
     page.available_end_hour
   )
 
-  return NextResponse.json({ slots })
+  // Serialize Date objects to ISO strings for JSON response
+  const serialized = slots.map((s) => ({
+    time: s.time instanceof Date ? s.time.toISOString() : s.time,
+    staffId: s.staffId,
+    staffName: s.staffName,
+  }))
+
+  return NextResponse.json({ slots: serialized })
 }
