@@ -206,6 +206,8 @@ export async function listUpdatedEvents(staffId: string, updatedMin: string) {
   })
   return res.data.items ?? []
 }
+
+export async function createCalendarEvent(staffId: string, booking: BookingData) {
   const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
 
