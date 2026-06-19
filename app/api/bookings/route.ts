@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
 
         if (crmCustomerId) {
           const meetingId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
-          const { error: meetingError } = await crmSupabase.from('meetings').insert({
+          const { error: meetingError } = await crmSupabase.from('Meeting').insert({
             id: meetingId,
             customerId: crmCustomerId,
             name: page.title,
