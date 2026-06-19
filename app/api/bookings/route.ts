@@ -120,6 +120,20 @@ export async function POST(req: NextRequest) {
         description: `${formattedDate} に予約が入りました。担当: ${staff?.name}`,
         booking_id: booking.id,
       })
+
+      // Insert into CRM meetings table
+      const jstEnd = toZonedTime(endTime, 'Asia/Tokyo')
+      await supabase.from('meetings').insert({
+        customerId: contactId,
+        name: page.title,
+        ca: staff?.name ?? '',
+        date: startTime.toISOString(),
+        startTime: format(jstStart, 'HH:mm'),
+        endTime: format(jstEnd, 'HH:mm'),
+        method: googleMeetLink ? 'Google Meet' : 'オンライン',
+        status: '予定',
+        createdAt: new Date().toISOString(),
+      })
     }
 
     return NextResponse.json({ booking })
