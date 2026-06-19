@@ -126,18 +126,20 @@ export async function POST(req: NextRequest) {
 
       // Look up CRM Customer by email, create if not found
       let crmCustomerId: string | null = null
-      const { data: crmCustomer } = await supabase
+      const { data: crmCustomer, error: crmLookupError } = await supabase
         .from('Customer')
         .select('id')
         .eq('email', email)
         .single()
+
+      console.log('CRM lookup email:', email, 'found:', crmCustomer?.id ?? null, 'error:', crmLookupError?.message ?? null)
 
       if (crmCustomer) {
         crmCustomerId = crmCustomer.id
       } else {
         const now = new Date().toISOString()
         const newId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
-        const { data: newCustomer } = await supabase
+        const { data: newCustomer, error: createError } = await supabase
           .from('Customer')
           .insert({
             id: newId,
@@ -152,8 +154,11 @@ export async function POST(req: NextRequest) {
           })
           .select('id')
           .single()
+        console.log('CRM create customer:', newCustomer?.id ?? null, 'error:', createError?.message ?? null)
         crmCustomerId = newCustomer?.id ?? null
       }
+
+      console.log('CRM customer ID:', crmCustomerId)
 
       if (crmCustomerId) {
         const meetingId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
@@ -170,6 +175,7 @@ export async function POST(req: NextRequest) {
           createdAt: new Date().toISOString(),
         })
         if (meetingError) console.error('Meeting insert error:', meetingError.message)
+        else console.log('Meeting inserted OK for customer:', crmCustomerId)
       }
     }
 
