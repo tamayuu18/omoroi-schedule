@@ -17,6 +17,7 @@ export default function StaffPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   async function loadStaff() {
     const res = await fetch('/api/staff')
@@ -41,13 +42,18 @@ export default function StaffPage() {
     setSubmitting(false)
   }
 
+  function copyId(id: string) {
+    navigator.clipboard.writeText(id)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">スタッフ管理</h1>
 
-      {/* Add Staff Form */}
-      <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">スタッフを追加</h2>
+      <div className="bg-white rounded-xl border p-6 mb-8">
+        <h2 className="text-base font-semibold text-gray-900 mb-4">スタッフを追加</h2>
         <form onSubmit={handleCreate} className="flex gap-4">
           <input
             type="text"
@@ -75,10 +81,9 @@ export default function StaffPage() {
         </form>
       </div>
 
-      {/* Staff List */}
-      <div className="bg-white rounded-xl shadow-sm border">
-        <div className="p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">スタッフ一覧</h2>
+      <div className="bg-white rounded-xl border">
+        <div className="p-5 border-b">
+          <h2 className="text-base font-semibold text-gray-900">スタッフ一覧</h2>
         </div>
         <div className="divide-y">
           {loading ? (
@@ -89,10 +94,16 @@ export default function StaffPage() {
             staff.map((s) => (
               <div key={s.id} className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-gray-900">{s.name}</p>
-                  <p className="text-sm text-gray-500">{s.email}</p>
+                  <p className="font-medium text-gray-900 text-sm">{s.name}</p>
+                  <p className="text-xs text-gray-500">{s.email}</p>
+                  <button
+                    onClick={() => copyId(s.id)}
+                    className="text-xs text-gray-400 hover:text-gray-600 mt-0.5 font-mono"
+                  >
+                    ID: {s.id.slice(0, 8)}... {copiedId === s.id ? '(コピー済み)' : '(クリックでコピー)'}
+                  </button>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   {s.google_refresh_token ? (
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       Google Calendar 連携済み
