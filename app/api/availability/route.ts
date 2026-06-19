@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getAvailableSlots } from '@/lib/google-calendar'
 import { parseISO } from 'date-fns'

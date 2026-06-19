@@ -74,11 +74,10 @@ export async function getAvailableSlots(
   startHour: number,
   endHour: number
 ): Promise<AvailableSlot[]> {
-  // Build time range for the day in JST
-  const dayStart = new Date(date)
-  dayStart.setHours(startHour, 0, 0, 0)
-  const dayEnd = new Date(date)
-  dayEnd.setHours(endHour, 0, 0, 0)
+  // Build time range for the day in JST (date string like "2026-06-20")
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`)
+  const dayEnd = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:00:00+09:00`)
 
   // Fetch busy intervals for each staff
   const staffBusyMap: Record<string, Array<{ start: Date; end: Date }>> = {}
