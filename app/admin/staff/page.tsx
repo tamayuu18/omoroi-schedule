@@ -7,6 +7,8 @@ interface Staff {
   name: string
   email: string
   google_refresh_token: string | null
+  google_channel_id: string | null
+  google_channel_expiry: string | null
   is_active: boolean
   created_at: string
 }
@@ -18,6 +20,7 @@ export default function StaffPage() {
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [watchingId, setWatchingId] = useState<string | null>(null)
 
   async function loadStaff() {
     const res = await fetch('/api/staff')
@@ -40,6 +43,22 @@ export default function StaffPage() {
     setEmail('')
     await loadStaff()
     setSubmitting(false)
+  }
+
+  async function handleWatch(staffId: string) {
+    setWatchingId(staffId)
+    const res = await fetch('/api/google/watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staffId }),
+    })
+    const data = await res.json()
+    if (data.error) alert('Watch設定エラー: ' + data.error)
+    else {
+      alert('カレンダー監視を開始しました')
+      await loadStaff()
+    }
+    setWatchingId(null)
   }
 
   function copyId(id: string) {
@@ -112,6 +131,16 @@ export default function StaffPage() {
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
                       未連携
                     </span>
+                  )}
+                  {s.google_refresh_token && (
+                    <button
+                      onClick={() => handleWatch(s.id)}
+                      disabled={watchingId === s.id}
+                      title={s.google_channel_expiry ? `監視中（有効期限: ${new Date(s.google_channel_expiry).toLocaleDateString('ja-JP')}）` : 'カレンダー削除を検知して自動キャンセル'}
+                      className={`text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${s.google_channel_id ? 'border border-gray-300 text-gray-700 hover:bg-gray-50' : 'border border-indigo-300 text-indigo-700 hover:bg-indigo-50'}`}
+                    >
+                      {watchingId === s.id ? '設定中...' : s.google_channel_id ? '監視更新' : 'カレンダー監視設定'}
+                    </button>
                   )}
                   <a
                     href={`/api/google/auth?staffId=${s.id}`}

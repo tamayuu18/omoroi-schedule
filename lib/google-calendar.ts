@@ -152,7 +152,60 @@ export async function getAvailableSlots(
   return slots
 }
 
-export async function createCalendarEvent(staffId: string, booking: BookingData) {
+export async function deleteCalendarEvent(staffId: string, eventId: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  try {
+    await calendar.events.delete({ calendarId, eventId })
+  } catch (e: any) {
+    if (e?.code !== 410 && e?.code !== 404) throw e
+    // 410/404 means already deleted - that's fine
+  }
+}
+
+export async function watchCalendar(staffId: string, webhookUrl: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  const channelId = crypto.randomUUID()
+  const res = await calendar.events.watch({
+    calendarId,
+    requestBody: {
+      id: channelId,
+      type: 'web_hook',
+      address: webhookUrl,
+    },
+  })
+  return {
+    channelId,
+    resourceId: res.data.resourceId ?? '',
+    expiration: res.data.expiration ? new Date(parseInt(res.data.expiration)).toISOString() : null,
+    calendarId,
+  }
+}
+
+export async function stopWatchCalendar(channelId: string, resourceId: string) {
+  // Use any staff's oauth client - we just need to call channels.stop
+  const oauth2Client = getOAuthClient()
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  try {
+    await calendar.channels.stop({ requestBody: { id: channelId, resourceId } })
+  } catch {
+    // ignore errors
+  }
+}
+
+export async function listUpdatedEvents(staffId: string, updatedMin: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  const res = await calendar.events.list({
+    calendarId,
+    updatedMin,
+    showDeleted: true,
+    singleEvents: true,
+    maxResults: 100,
+  })
+  return res.data.items ?? []
+}
   const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
 
