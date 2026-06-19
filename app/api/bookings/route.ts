@@ -50,22 +50,33 @@ export async function POST(req: NextRequest) {
     // Create Google Calendar event
     let googleEventId: string | null = null
     let googleMeetLink: string | null = null
+    const bookingData = {
+      staffId,
+      startTime,
+      endTime,
+      candidateName: name,
+      candidateEmail: email,
+      candidatePhone: phone,
+      candidateNote: note,
+      bookingPageTitle: page.title,
+      bookingPageId: pageId,
+    }
     try {
-      const eventResult = await createCalendarEvent(staffId, {
-        staffId,
-        startTime,
-        endTime,
-        candidateName: name,
-        candidateEmail: email,
-        candidatePhone: phone,
-        candidateNote: note,
-        bookingPageTitle: page.title,
-        bookingPageId: pageId,
-      })
+      const eventResult = await createCalendarEvent(staffId, bookingData)
       googleEventId = eventResult.eventId
       googleMeetLink = eventResult.meetLink
     } catch (calErr) {
       console.error('Google Calendar error (non-fatal):', calErr)
+    }
+
+    // Also create event on admin's calendar if ADMIN_STAFF_ID is set and different from assigned staff
+    const adminStaffId = process.env.ADMIN_STAFF_ID
+    if (adminStaffId && adminStaffId !== staffId) {
+      try {
+        await createCalendarEvent(adminStaffId, { ...bookingData, staffId: adminStaffId })
+      } catch (adminCalErr) {
+        console.error('Admin Google Calendar error (non-fatal):', adminCalErr)
+      }
     }
 
     // Create booking
