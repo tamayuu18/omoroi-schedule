@@ -124,7 +124,8 @@ export async function POST(req: NextRequest) {
       // Insert into CRM meetings table
       const jstEnd = toZonedTime(endTime, 'Asia/Tokyo')
 
-      // Look up CRM Customer by email to get their CUID
+      // Look up CRM Customer by email, create if not found
+      let crmCustomerId: string | null = null
       const { data: crmCustomer } = await supabase
         .from('Customer')
         .select('id')
@@ -132,8 +133,31 @@ export async function POST(req: NextRequest) {
         .single()
 
       if (crmCustomer) {
+        crmCustomerId = crmCustomer.id
+      } else {
+        const now = new Date().toISOString()
+        const newId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+        const { data: newCustomer } = await supabase
+          .from('Customer')
+          .insert({
+            id: newId,
+            name,
+            email,
+            phone: phone || null,
+            ca: staff?.name ?? '',
+            status: '面談予約済み',
+            inflow: 'omoroi-schedule',
+            registeredAt: now,
+            updatedAt: now,
+          })
+          .select('id')
+          .single()
+        crmCustomerId = newCustomer?.id ?? null
+      }
+
+      if (crmCustomerId) {
         await supabase.from('meetings').insert({
-          customerId: crmCustomer.id,
+          customerId: crmCustomerId,
           name: page.title,
           ca: staff?.name ?? '',
           date: startTime.toISOString(),
