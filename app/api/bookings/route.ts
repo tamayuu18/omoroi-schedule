@@ -123,17 +123,27 @@ export async function POST(req: NextRequest) {
 
       // Insert into CRM meetings table
       const jstEnd = toZonedTime(endTime, 'Asia/Tokyo')
-      await supabase.from('meetings').insert({
-        customerId: contactId,
-        name: page.title,
-        ca: staff?.name ?? '',
-        date: startTime.toISOString(),
-        startTime: format(jstStart, 'HH:mm'),
-        endTime: format(jstEnd, 'HH:mm'),
-        method: googleMeetLink ? 'Google Meet' : 'オンライン',
-        status: '予定',
-        createdAt: new Date().toISOString(),
-      })
+
+      // Look up CRM Customer by email to get their CUID
+      const { data: crmCustomer } = await supabase
+        .from('Customer')
+        .select('id')
+        .eq('email', email)
+        .single()
+
+      if (crmCustomer) {
+        await supabase.from('meetings').insert({
+          customerId: crmCustomer.id,
+          name: page.title,
+          ca: staff?.name ?? '',
+          date: startTime.toISOString(),
+          startTime: format(jstStart, 'HH:mm'),
+          endTime: format(jstEnd, 'HH:mm'),
+          method: googleMeetLink ? 'Google Meet' : 'オンライン',
+          status: '予定',
+          createdAt: new Date().toISOString(),
+        })
+      }
     }
 
     return NextResponse.json({ booking })
