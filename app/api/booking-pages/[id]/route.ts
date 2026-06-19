@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const supabase = createServiceClient()
     const body = await req.json()
     const { title, slug, description, duration_minutes, staffIds, buffer_minutes, available_start_hour, available_end_hour } = body
-    const { id } = params
+    const { id } = await params
 
     const { error } = await supabase
       .from('booking_pages')
@@ -37,10 +37,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const supabase = createServiceClient()
-    const { error } = await supabase.from('booking_pages').delete().eq('id', params.id)
+    const { id } = await params
+    const { error } = await supabase.from('booking_pages').delete().eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   } catch {

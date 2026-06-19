@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const supabase = createServiceClient()
     const body = await req.json()
     const { status } = body
-    const { id } = params
+    const { id } = await params
 
     if (!status) {
       return NextResponse.json({ error: 'status is required' }, { status: 400 })
