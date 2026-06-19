@@ -17,18 +17,15 @@ interface BookingPage {
   staff?: Staff[]
 }
 
+const EMPTY_FORM = { title: '', slug: '', description: '', duration_minutes: 30, staffIds: [] as string[] }
+
 export default function PagesPage() {
   const [pages, setPages] = useState<BookingPage[]>([])
   const [allStaff, setAllStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    title: '',
-    slug: '',
-    description: '',
-    duration_minutes: 30,
-    staffIds: [] as string[],
-  })
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState(EMPTY_FORM)
   const [copied, setCopied] = useState<string | null>(null)
 
   async function loadData() {
@@ -45,41 +42,75 @@ export default function PagesPage() {
 
   useEffect(() => { loadData() }, [])
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await fetch('/api/booking-pages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
+    if (editingId) {
+      await fetch(`/api/booking-pages/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+    } else {
+      await fetch('/api/booking-pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+    }
     setShowForm(false)
-    setForm({ title: '', slug: '', description: '', duration_minutes: 30, staffIds: [] })
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    await loadData()
+  }
+
+  function startEdit(page: BookingPage) {
+    setForm({
+      title: page.title,
+      slug: page.slug,
+      description: page.description ?? '',
+      duration_minutes: page.duration_minutes,
+      staffIds: page.staff?.map((s) => s.id) ?? [],
+    })
+    setEditingId(page.id)
+    setShowForm(true)
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('この予約ページを削除しますか？')) return
+    await fetch(`/api/booking-pages/${id}`, { method: 'DELETE' })
     await loadData()
   }
 
   function copyUrl(slug: string) {
-    const url = `${window.location.origin}/book/${slug}`
-    navigator.clipboard.writeText(url)
+    navigator.clipboard.writeText(`${window.location.origin}/book/${slug}`)
     setCopied(slug)
     setTimeout(() => setCopied(null), 2000)
+  }
+
+  function cancelForm() {
+    setShowForm(false)
+    setEditingId(null)
+    setForm(EMPTY_FORM)
   }
 
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">予約ページ設定</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
-        >
-          + 新規作成
-        </button>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
+          >
+            新規作成
+          </button>
+        )}
       </div>
 
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-          <h2 className="text-lg font-semibold mb-4">新しい予約ページを作成</h2>
-          <form onSubmit={handleCreate} className="space-y-4">
+        <div className="bg-white rounded-xl border p-6 mb-8">
+          <h2 className="text-lg font-semibold mb-4">{editingId ? '予約ページを編集' : '新しい予約ページを作成'}</h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">タイトル</label>
@@ -137,11 +168,12 @@ export default function PagesPage() {
                       type="checkbox"
                       checked={form.staffIds.includes(s.id)}
                       onChange={(e) => {
-                        if (e.target.checked) {
-                          setForm({ ...form, staffIds: [...form.staffIds, s.id] })
-                        } else {
-                          setForm({ ...form, staffIds: form.staffIds.filter((id) => id !== s.id) })
-                        }
+                        setForm({
+                          ...form,
+                          staffIds: e.target.checked
+                            ? [...form.staffIds, s.id]
+                            : form.staffIds.filter((id) => id !== s.id),
+                        })
                       }}
                       className="rounded"
                     />
@@ -152,9 +184,9 @@ export default function PagesPage() {
             </div>
             <div className="flex gap-3">
               <button type="submit" className="bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm hover:bg-indigo-700">
-                作成する
+                {editingId ? '保存する' : '作成する'}
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="border px-6 py-2 rounded-lg text-sm hover:bg-gray-50">
+              <button type="button" onClick={cancelForm} className="border px-6 py-2 rounded-lg text-sm hover:bg-gray-50">
                 キャンセル
               </button>
             </div>
@@ -162,7 +194,7 @@ export default function PagesPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border">
+      <div className="bg-white rounded-xl border">
         <div className="divide-y">
           {loading ? (
             <p className="p-6 text-gray-500 text-sm">読み込み中...</p>
@@ -185,15 +217,27 @@ export default function PagesPage() {
                     href={`/book/${page.slug}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm border px-4 py-2 rounded-lg hover:bg-gray-50"
+                    className="text-sm border px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
                   >
                     プレビュー
                   </a>
                   <button
                     onClick={() => copyUrl(page.slug)}
-                    className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                    className="text-sm border px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
                   >
                     {copied === page.slug ? 'コピー済み' : 'URLをコピー'}
+                  </button>
+                  <button
+                    onClick={() => startEdit(page)}
+                    className="text-sm border px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
+                  >
+                    編集
+                  </button>
+                  <button
+                    onClick={() => handleDelete(page.id)}
+                    className="text-sm border border-red-200 px-3 py-2 rounded-lg hover:bg-red-50 text-red-600"
+                  >
+                    削除
                   </button>
                 </div>
               </div>

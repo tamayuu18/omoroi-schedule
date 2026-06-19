@@ -170,7 +170,10 @@ export async function createCalendarEvent(staffId: string, booking: BookingData)
         dateTime: booking.endTime.toISOString(),
         timeZone: JST,
       },
-      attendees: [{ email: booking.candidateEmail, displayName: booking.candidateName }],
+      attendees: [
+        { email: booking.candidateEmail, displayName: booking.candidateName },
+        ...(process.env.ADMIN_EMAIL ? [{ email: process.env.ADMIN_EMAIL }] : []),
+      ],
       conferenceData: {
         createRequest: {
           requestId: `booking-${Date.now()}`,
