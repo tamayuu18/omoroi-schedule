@@ -156,7 +156,9 @@ export async function POST(req: NextRequest) {
       }
 
       if (crmCustomerId) {
-        await supabase.from('meetings').insert({
+        const meetingId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+        const { error: meetingError } = await supabase.from('meetings').insert({
+          id: meetingId,
           customerId: crmCustomerId,
           name: page.title,
           ca: staff?.name ?? '',
@@ -167,6 +169,7 @@ export async function POST(req: NextRequest) {
           status: '予定',
           createdAt: new Date().toISOString(),
         })
+        if (meetingError) console.error('Meeting insert error:', meetingError.message)
       }
     }
 
