@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createCalendarEvent } from '@/lib/google-calendar'
+import { format } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,6 +25,8 @@ export async function POST(req: NextRequest) {
     if (!page) {
       return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
     }
+
+    const { data: staff } = await supabase.from('staff').select('name').eq('id', staffId).single()
 
     const startTime = new Date(slotTime)
     const endTime = new Date(startTime.getTime() + page.duration_minutes * 60 * 1000)
@@ -52,6 +56,7 @@ export async function POST(req: NextRequest) {
     let googleMeetLink: string | null = null
     const bookingData = {
       staffId,
+      staffName: staff?.name ?? '担当者',
       startTime,
       endTime,
       candidateName: name,
@@ -102,6 +107,19 @@ export async function POST(req: NextRequest) {
     if (bookingError) {
       console.error('Booking insert error:', bookingError)
       return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
+    }
+
+    // Insert CRM activity
+    if (contactId && booking) {
+      const jstStart = toZonedTime(startTime, 'Asia/Tokyo')
+      const formattedDate = format(jstStart, 'yyyy年M月d日 HH:mm')
+      await supabase.from('contact_activities').insert({
+        contact_id: contactId,
+        activity_type: 'booking',
+        title: `面談予約: ${page.title}`,
+        description: `${formattedDate} に予約が入りました。担当: ${staff?.name}`,
+        booking_id: booking.id,
+      })
     }
 
     return NextResponse.json({ booking })

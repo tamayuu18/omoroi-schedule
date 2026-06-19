@@ -70,6 +70,7 @@ export async function getAvailableSlots(
   staffList: Array<{ id: string; name: string; google_refresh_token: string | null; google_calendar_id: string }>,
   date: Date,
   durationMinutes: number,
+  bufferMinutes: number,
   startHour: number,
   endHour: number
 ): Promise<AvailableSlot[]> {
@@ -146,7 +147,7 @@ export async function getAvailableSlots(
       }
     }
 
-    slotTime.setMinutes(slotTime.getMinutes() + durationMinutes)
+    slotTime.setMinutes(slotTime.getMinutes() + durationMinutes + bufferMinutes)
   }
 
   return slots
@@ -160,7 +161,7 @@ export async function createCalendarEvent(staffId: string, booking: BookingData)
     calendarId,
     conferenceDataVersion: 1,
     requestBody: {
-      summary: `面接: ${booking.candidateName}`,
+      summary: `${booking.staffName} 面談: ${booking.candidateName}様`,
       description: `${booking.bookingPageTitle}\n\n求職者: ${booking.candidateName}\nEmail: ${booking.candidateEmail}${booking.candidatePhone ? `\n電話: ${booking.candidatePhone}` : ''}${booking.candidateNote ? `\n備考: ${booking.candidateNote}` : ''}`,
       start: {
         dateTime: booking.startTime.toISOString(),

@@ -13,11 +13,23 @@ interface BookingPage {
   title: string
   description: string | null
   duration_minutes: number
+  buffer_minutes: number
+  available_start_hour: number
+  available_end_hour: number
   is_active: boolean
   staff?: Staff[]
 }
 
-const EMPTY_FORM = { title: '', slug: '', description: '', duration_minutes: 30, staffIds: [] as string[] }
+const EMPTY_FORM = {
+  title: '',
+  slug: '',
+  description: '',
+  duration_minutes: 30,
+  buffer_minutes: 15,
+  available_start_hour: 9,
+  available_end_hour: 18,
+  staffIds: [] as string[],
+}
 
 export default function PagesPage() {
   const [pages, setPages] = useState<BookingPage[]>([])
@@ -69,6 +81,9 @@ export default function PagesPage() {
       slug: page.slug,
       description: page.description ?? '',
       duration_minutes: page.duration_minutes,
+      buffer_minutes: page.buffer_minutes ?? 15,
+      available_start_hour: page.available_start_hour ?? 9,
+      available_end_hour: page.available_end_hour ?? 18,
       staffIds: page.staff?.map((s) => s.id) ?? [],
     })
     setEditingId(page.id)
@@ -158,6 +173,44 @@ export default function PagesPage() {
                 <option value={45}>45分</option>
                 <option value={60}>60分</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">バッファ時間（分）</label>
+              <select
+                value={form.buffer_minutes}
+                onChange={(e) => setForm({ ...form, buffer_minutes: Number(e.target.value) })}
+                className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value={0}>0分</option>
+                <option value={5}>5分</option>
+                <option value={10}>10分</option>
+                <option value={15}>15分</option>
+                <option value={30}>30分</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">受付開始時間</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={form.available_start_hour}
+                  onChange={(e) => setForm({ ...form, available_start_hour: Number(e.target.value) })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">受付終了時間</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={form.available_end_hour}
+                  onChange={(e) => setForm({ ...form, available_end_hour: Number(e.target.value) })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">担当スタッフ</label>

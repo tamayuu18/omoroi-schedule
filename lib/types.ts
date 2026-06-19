@@ -65,6 +65,7 @@ export interface TimeSlot {
 
 export interface BookingData {
   staffId: string
+  staffName: string
   startTime: Date
   endTime: Date
   candidateName: string

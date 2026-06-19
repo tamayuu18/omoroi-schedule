@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = createServiceClient()
     const body = await req.json()
-    const { title, slug, description, duration_minutes, staffIds } = body
+    const { title, slug, description, duration_minutes, staffIds, buffer_minutes, available_start_hour, available_end_hour } = body
 
     if (!title || !slug) {
       return NextResponse.json({ error: 'title and slug are required' }, { status: 400 })
@@ -52,7 +52,15 @@ export async function POST(req: NextRequest) {
 
     const { data: page, error } = await supabase
       .from('booking_pages')
-      .insert({ title, slug, description: description || null, duration_minutes: duration_minutes || 30 })
+      .insert({
+        title,
+        slug,
+        description: description || null,
+        duration_minutes: duration_minutes || 30,
+        buffer_minutes: buffer_minutes ?? 15,
+        available_start_hour: available_start_hour ?? 9,
+        available_end_hour: available_end_hour ?? 18,
+      })
       .select()
       .single()
 
