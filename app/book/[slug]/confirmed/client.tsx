@@ -1,14 +1,11 @@
-import { Suspense } from 'react'
-import ConfirmedClient from './client'
+'use client'
 
-export default function ConfirmedPage({ params }: { params: { slug: string } }) {
-  return (
-    <Suspense>
-      <ConfirmedClient slug={params.slug} />
-    </Suspense>
-  )
-}
+import { useSearchParams } from 'next/navigation'
+import { format } from 'date-fns'
+import { ja } from 'date-fns/locale'
+import Link from 'next/link'
 
+export default function ConfirmedClient({ slug }: { slug: string }) {
   const searchParams = useSearchParams()
   const name = searchParams.get('name') ?? ''
   const timeStr = searchParams.get('time') ?? ''
@@ -79,14 +76,5 @@ export default function ConfirmedPage({ params }: { params: { slug: string } }) 
         </div>
       </div>
     </div>
-  )
-}
-
-export default function ConfirmedPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params)
-  return (
-    <Suspense>
-      <ConfirmedContent slug={slug} />
-    </Suspense>
   )
 }
