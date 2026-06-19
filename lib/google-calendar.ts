@@ -47,7 +47,6 @@ async function getAuthClientForStaff(staffId: string) {
     expiry_date: staff.google_token_expiry ? new Date(staff.google_token_expiry).getTime() : undefined,
   })
 
-  // Auto-refresh and save updated token
   oauth2Client.on('tokens', async (tokens) => {
     const updates: Record<string, string | null> = {}
     if (tokens.access_token) updates.google_access_token = tokens.access_token
@@ -74,12 +73,10 @@ export async function getAvailableSlots(
   startHour: number,
   endHour: number
 ): Promise<AvailableSlot[]> {
-  // Build time range for the day in JST (date string like "2026-06-20")
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`)
   const dayEnd = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:00:00+09:00`)
 
-  // Fetch busy intervals for each staff
   const staffBusyMap: Record<string, Array<{ start: Date; end: Date }>> = {}
 
   await Promise.all(
@@ -108,7 +105,6 @@ export async function getAvailableSlots(
       })
   )
 
-  // Also fetch existing DB bookings to mark as busy
   const supabase = createServiceClient()
   const { data: existingBookings } = await supabase
     .from('bookings')
@@ -126,7 +122,6 @@ export async function getAvailableSlots(
     })
   }
 
-  // Generate slots
   const slots: AvailableSlot[] = []
   const slotTime = new Date(dayStart)
 
@@ -134,12 +129,9 @@ export async function getAvailableSlots(
     const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
     if (slotEnd > dayEnd) break
 
-    // Find first available staff for this slot
     for (const staff of staffList.filter((s) => s.google_refresh_token)) {
       const busy = staffBusyMap[staff.id] ?? []
-      const isBusy = busy.some(
-        (b) => slotTime < b.end && slotEnd > b.start
-      )
+      const isBusy = busy.some((b) => slotTime < b.end && slotEnd > b.start)
       if (!isBusy) {
         slots.push({ time: new Date(slotTime), staffId: staff.id, staffName: staff.name })
         break
@@ -150,6 +142,59 @@ export async function getAvailableSlots(
   }
 
   return slots
+}
+
+export async function deleteCalendarEvent(staffId: string, eventId: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  try {
+    await calendar.events.delete({ calendarId, eventId })
+  } catch (e: any) {
+    if (e?.code !== 410 && e?.code !== 404) throw e
+  }
+}
+
+export async function watchCalendar(staffId: string, webhookUrl: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  const channelId = crypto.randomUUID()
+  const res = await calendar.events.watch({
+    calendarId,
+    requestBody: {
+      id: channelId,
+      type: 'web_hook',
+      address: webhookUrl,
+    },
+  })
+  return {
+    channelId,
+    resourceId: res.data.resourceId ?? '',
+    expiration: res.data.expiration ? new Date(parseInt(res.data.expiration)).toISOString() : null,
+    calendarId,
+  }
+}
+
+export async function stopWatchCalendar(channelId: string, resourceId: string) {
+  const oauth2Client = getOAuthClient()
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  try {
+    await calendar.channels.stop({ requestBody: { id: channelId, resourceId } })
+  } catch {
+    // ignore
+  }
+}
+
+export async function listUpdatedEvents(staffId: string, updatedMin: string) {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  const res = await calendar.events.list({
+    calendarId,
+    updatedMin,
+    showDeleted: true,
+    singleEvents: true,
+    maxResults: 100,
+  })
+  return res.data.items ?? []
 }
 
 export async function createCalendarEvent(staffId: string, booking: BookingData) {

@@ -3,6 +3,14 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { createCalendarEvent } from '@/lib/google-calendar'
 import { format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
+import { createClient } from '@supabase/supabase-js'
+
+function createCrmClient() {
+  const url = process.env.CRM_SUPABASE_URL
+  const key = process.env.CRM_SUPABASE_SERVICE_KEY
+  if (!url || !key) return null
+  return createClient(url, key)
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,7 +51,7 @@ export async function POST(req: NextRequest) {
       contactId = existingContact.id
       await supabase.from('contacts').update({ updated_at: new Date().toISOString() }).eq('id', contactId)
     } else {
-      const { data: newContact } = await supabase
+      const { data: newContact, error: contactInsertError } = await supabase
         .from('contacts')
         .insert({ name, email, phone: phone || null, source: 'booking' })
         .select('id')
@@ -124,58 +132,55 @@ export async function POST(req: NextRequest) {
       // Insert into CRM meetings table
       const jstEnd = toZonedTime(endTime, 'Asia/Tokyo')
 
-      // Look up CRM Customer by email, create if not found
-      let crmCustomerId: string | null = null
-      const { data: crmCustomer, error: crmLookupError } = await supabase
-        .from('Customer')
-        .select('id')
-        .eq('email', email)
-        .single()
-
-      console.log('CRM lookup email:', email, 'found:', crmCustomer?.id ?? null, 'error:', crmLookupError?.message ?? null)
-
-      if (crmCustomer) {
-        crmCustomerId = crmCustomer.id
-      } else {
-        const now = new Date().toISOString()
-        const newId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
-        const { data: newCustomer, error: createError } = await supabase
+      const crmSupabase = createCrmClient()
+      if (crmSupabase) {
+        // Look up CRM Customer by email, create if not found
+        let crmCustomerId: string | null = null
+        const { data: crmCustomer, error: crmLookupError } = await crmSupabase
           .from('Customer')
-          .insert({
-            id: newId,
-            name,
-            email,
-            phone: phone || null,
-            ca: staff?.name ?? '',
-            status: '面談予約済み',
-            inflow: 'omoroi-schedule',
-            registeredAt: now,
-            updatedAt: now,
-          })
           .select('id')
+          .eq('email', email)
           .single()
-        console.log('CRM create customer:', newCustomer?.id ?? null, 'error:', createError?.message ?? null)
-        crmCustomerId = newCustomer?.id ?? null
-      }
 
-      console.log('CRM customer ID:', crmCustomerId)
+        if (crmCustomer) {
+          crmCustomerId = crmCustomer.id
+        } else {
+          const now = new Date().toISOString()
+          const newId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+          const { data: newCustomer } = await crmSupabase
+            .from('Customer')
+            .insert({
+              id: newId,
+              name,
+              email,
+              phone: phone || null,
+              ca: staff?.name ?? '',
+              status: '面談予約済み',
+              inflow: 'omoroi-schedule',
+              registeredAt: now,
+              updatedAt: now,
+            })
+            .select('id')
+            .single()
+          crmCustomerId = newCustomer?.id ?? null
+        }
 
-      if (crmCustomerId) {
-        const meetingId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
-        const { error: meetingError } = await supabase.from('meetings').insert({
-          id: meetingId,
-          customerId: crmCustomerId,
-          name: page.title,
-          ca: staff?.name ?? '',
-          date: startTime.toISOString(),
-          startTime: format(jstStart, 'HH:mm'),
-          endTime: format(jstEnd, 'HH:mm'),
-          method: googleMeetLink ? 'Google Meet' : 'オンライン',
-          status: '予定',
-          createdAt: new Date().toISOString(),
-        })
-        if (meetingError) console.error('Meeting insert error:', meetingError.message)
-        else console.log('Meeting inserted OK for customer:', crmCustomerId)
+        if (crmCustomerId) {
+          const meetingId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+          const { error: meetingError } = await crmSupabase.from('Meeting').insert({
+            id: meetingId,
+            customerId: crmCustomerId,
+            name: page.title,
+            ca: staff?.name ?? '',
+            date: startTime.toISOString(),
+            startTime: format(jstStart, 'HH:mm'),
+            endTime: format(jstEnd, 'HH:mm'),
+            method: googleMeetLink ? 'Google Meet' : 'オンライン',
+            status: '予定',
+            createdAt: new Date().toISOString(),
+          })
+          if (meetingError) console.error('Meeting insert error:', meetingError.message)
+        }
       }
     }
 
