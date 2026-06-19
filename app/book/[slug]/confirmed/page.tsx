@@ -4,9 +4,9 @@ import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import Link from 'next/link'
-import { Suspense } from 'react'
+import { Suspense, use } from 'react'
 
-function ConfirmedContent() {
+function ConfirmedContent({ slug }: { slug: string }) {
   const searchParams = useSearchParams()
   const name = searchParams.get('name') ?? ''
   const timeStr = searchParams.get('time') ?? ''
@@ -68,10 +68,10 @@ function ConfirmedContent() {
               Google Calendarに追加
             </a>
             <Link
-              href="/"
+              href={`/book/${slug}`}
               className="block w-full border py-3 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              トップページへ
+              予約ページに戻る
             </Link>
           </div>
         </div>
@@ -80,10 +80,11 @@ function ConfirmedContent() {
   )
 }
 
-export default function ConfirmedPage() {
+export default function ConfirmedPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = use(params)
   return (
     <Suspense>
-      <ConfirmedContent />
+      <ConfirmedContent slug={slug} />
     </Suspense>
   )
 }
