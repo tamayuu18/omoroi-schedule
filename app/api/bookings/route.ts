@@ -43,13 +43,15 @@ export async function POST(req: NextRequest) {
       contactId = existingContact.id
       await supabase.from('contacts').update({ updated_at: new Date().toISOString() }).eq('id', contactId)
     } else {
-      const { data: newContact } = await supabase
+      const { data: newContact, error: contactInsertError } = await supabase
         .from('contacts')
         .insert({ name, email, phone: phone || null, source: 'booking' })
         .select('id')
         .single()
+      console.log('Contact insert:', newContact?.id ?? null, 'error:', contactInsertError?.message ?? null)
       contactId = newContact?.id ?? null
     }
+    console.log('contactId:', contactId)
 
     // Create Google Calendar event
     let googleEventId: string | null = null
