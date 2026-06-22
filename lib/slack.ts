@@ -12,22 +12,38 @@ export async function notifySlackNewBooking(data: SlackBookingNotification) {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL
   if (!webhookUrl) return
 
-  const lines = [
-    `*新しい面談予約が入りました*`,
-    `予約ページ: ${data.pageTitle}`,
-    `担当: ${data.staffName}`,
-    `求職者: ${data.candidateName}`,
-    `日時: ${data.startTimeJst}`,
-    `Email: ${data.candidateEmail}`,
+  const fields = [
+    { title: '📋 予約ページ', value: data.pageTitle, short: true },
+    { title: '👨‍💼 担当', value: data.staffName, short: true },
+    { title: '📅 日時', value: data.startTimeJst, short: true },
+    { title: '👤 求職者', value: data.candidateName, short: true },
+    { title: '📧 メール', value: data.candidateEmail, short: false },
   ]
-  if (data.candidatePhone) lines.push(`電話: ${data.candidatePhone}`)
-  if (data.meetLink) lines.push(`Google Meet: ${data.meetLink}`)
+  if (data.candidatePhone) {
+    fields.push({ title: '📞 電話', value: data.candidatePhone, short: true })
+  }
+  if (data.meetLink) {
+    fields.push({ title: '🔗 Google Meet', value: `<${data.meetLink}|参加リンク>`, short: true })
+  }
+
+  const payload = {
+    attachments: [
+      {
+        color: '#6366f1',
+        pretext: '🎉 *新しい面談予約が入りました！*',
+        mrkdwn_in: ['pretext', 'fields'],
+        fields,
+        footer: 'omoroi schedule',
+        ts: Math.floor(Date.now() / 1000).toString(),
+      },
+    ],
+  }
 
   try {
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: lines.join('\n') }),
+      body: JSON.stringify(payload),
     })
   } catch (e) {
     console.error('Slack notification error (non-fatal):', e)
