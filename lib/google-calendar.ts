@@ -122,6 +122,22 @@ export async function getAvailableSlots(
     })
   }
 
+  // Load total confirmed booking counts per staff for even distribution
+  const { data: allBookings } = await supabase
+    .from('bookings')
+    .select('staff_id')
+    .eq('status', 'confirmed')
+
+  const bookingCounts: Record<string, number> = {}
+  for (const staff of staffList) bookingCounts[staff.id] = 0
+  for (const b of allBookings ?? []) {
+    if (bookingCounts[b.staff_id] !== undefined) bookingCounts[b.staff_id]++
+  }
+
+  // Track assignments made within this slot generation to keep balance
+  const assignedThisRun: Record<string, number> = {}
+  for (const staff of staffList) assignedThisRun[staff.id] = 0
+
   const slots: AvailableSlot[] = []
   const slotTime = new Date(dayStart)
 
@@ -129,13 +145,23 @@ export async function getAvailableSlots(
     const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
     if (slotEnd > dayEnd) break
 
-    for (const staff of staffList.filter((s) => s.google_refresh_token)) {
-      const busy = staffBusyMap[staff.id] ?? []
-      const isBusy = busy.some((b) => slotTime < b.end && slotEnd > b.start)
-      if (!isBusy) {
-        slots.push({ time: new Date(slotTime), staffId: staff.id, staffName: staff.name })
-        break
-      }
+    // Find available staff, then pick the one with fewest total bookings (even distribution)
+    const availableStaff = staffList
+      .filter((s) => s.google_refresh_token)
+      .filter((staff) => {
+        const busy = staffBusyMap[staff.id] ?? []
+        return !busy.some((b) => slotTime < b.end && slotEnd > b.start)
+      })
+
+    if (availableStaff.length > 0) {
+      availableStaff.sort((a, b) => {
+        const loadA = (bookingCounts[a.id] ?? 0) + (assignedThisRun[a.id] ?? 0)
+        const loadB = (bookingCounts[b.id] ?? 0) + (assignedThisRun[b.id] ?? 0)
+        return loadA - loadB
+      })
+      const chosen = availableStaff[0]
+      slots.push({ time: new Date(slotTime), staffId: chosen.id, staffName: chosen.name })
+      assignedThisRun[chosen.id] = (assignedThisRun[chosen.id] ?? 0) + 1
     }
 
     slotTime.setMinutes(slotTime.getMinutes() + durationMinutes + bufferMinutes)
