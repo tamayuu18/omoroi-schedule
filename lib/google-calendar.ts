@@ -243,6 +243,7 @@ export async function createCalendarEvent(staffId: string, booking: BookingData)
       },
       attendees: [
         { email: booking.candidateEmail, displayName: booking.candidateName },
+        ...(booking.staffEmail ? [{ email: booking.staffEmail, displayName: booking.staffName }] : []),
         ...(process.env.ADMIN_EMAIL ? [{ email: process.env.ADMIN_EMAIL }] : []),
       ],
       conferenceData: {

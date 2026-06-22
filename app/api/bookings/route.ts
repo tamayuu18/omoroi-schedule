@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
     }
 
-    const { data: staff } = await supabase.from('staff').select('name').eq('id', staffId).single()
+    const { data: staff } = await supabase.from('staff').select('name, email').eq('id', staffId).single()
 
     const startTime = new Date(slotTime)
     const endTime = new Date(startTime.getTime() + page.duration_minutes * 60 * 1000)
@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
     const bookingData = {
       staffId,
       staffName: staff?.name ?? '担当者',
+      staffEmail: staff?.email ?? undefined,
       startTime,
       endTime,
       candidateName: name,
@@ -75,22 +76,17 @@ export async function POST(req: NextRequest) {
       bookingPageTitle: page.title,
       bookingPageId: pageId,
     }
+
+    // Create calendar event: use admin account if set (single source of Meet URL),
+    // otherwise fall back to assigned staff's account
+    const adminStaffId = process.env.ADMIN_STAFF_ID
+    const calendarCreatorId = adminStaffId ?? staffId
     try {
-      const eventResult = await createCalendarEvent(staffId, bookingData)
+      const eventResult = await createCalendarEvent(calendarCreatorId, bookingData)
       googleEventId = eventResult.eventId
       googleMeetLink = eventResult.meetLink
     } catch (calErr) {
       console.error('Google Calendar error (non-fatal):', calErr)
-    }
-
-    // Also create event on admin's calendar if ADMIN_STAFF_ID is set and different from assigned staff
-    const adminStaffId = process.env.ADMIN_STAFF_ID
-    if (adminStaffId && adminStaffId !== staffId) {
-      try {
-        await createCalendarEvent(adminStaffId, { ...bookingData, staffId: adminStaffId })
-      } catch (adminCalErr) {
-        console.error('Admin Google Calendar error (non-fatal):', adminCalErr)
-      }
     }
 
     // Create booking
