@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createCalendarEvent } from '@/lib/google-calendar'
+import { notifySlackNewBooking } from '@/lib/slack'
 import { format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { createClient } from '@supabase/supabase-js'
@@ -115,6 +116,20 @@ export async function POST(req: NextRequest) {
     if (bookingError) {
       console.error('Booking insert error:', bookingError)
       return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
+    }
+
+    // Slack notification
+    if (booking) {
+      const jstStartSlack = toZonedTime(startTime, 'Asia/Tokyo')
+      await notifySlackNewBooking({
+        candidateName: name,
+        candidateEmail: email,
+        candidatePhone: phone,
+        staffName: staff?.name ?? '担当者',
+        pageTitle: page.title,
+        startTimeJst: format(jstStartSlack, 'yyyy年M月d日 HH:mm'),
+        meetLink: googleMeetLink,
+      })
     }
 
     // Insert CRM activity
