@@ -56,11 +56,23 @@ interface SlackCancelNotification {
   staffName: string
   pageTitle: string
   startTimeJst: string
+  cancelledBy?: string
 }
 
 export async function notifySlackCancelBooking(data: SlackCancelNotification) {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL
   if (!webhookUrl) return
+
+  const fields = [
+    { title: '📋 予約ページ', value: data.pageTitle, short: true },
+    { title: '👨‍💼 担当', value: data.staffName, short: true },
+    { title: '📅 日時', value: data.startTimeJst, short: true },
+    { title: '👤 求職者', value: data.candidateName, short: true },
+    { title: '📧 メール', value: data.candidateEmail, short: false },
+  ]
+  if (data.cancelledBy) {
+    fields.push({ title: '🛑 キャンセル元', value: data.cancelledBy, short: true })
+  }
 
   const payload = {
     attachments: [
@@ -68,13 +80,7 @@ export async function notifySlackCancelBooking(data: SlackCancelNotification) {
         color: '#ef4444',
         pretext: '❌ *面談予約がキャンセルされました*',
         mrkdwn_in: ['pretext'],
-        fields: [
-          { title: '📋 予約ページ', value: data.pageTitle, short: true },
-          { title: '👨‍💼 担当', value: data.staffName, short: true },
-          { title: '📅 日時', value: data.startTimeJst, short: true },
-          { title: '👤 求職者', value: data.candidateName, short: true },
-          { title: '📧 メール', value: data.candidateEmail, short: false },
-        ],
+        fields,
         footer: 'omoroi schedule',
         ts: Math.floor(Date.now() / 1000).toString(),
       },

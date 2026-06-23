@@ -81,6 +81,8 @@ export default function BookPage({ params }: { params: { slug: string } }) {
           name: form.name,
           time: selectedSlot!.time,
           meet: data.booking?.google_meet_link ?? '',
+          id: data.booking?.id ?? '',
+          token: data.booking?.cancellation_token ?? '',
         })
         router.push(`/book/${params.slug}/confirmed?${searchParams.toString()}`)
       } else {

@@ -41,6 +41,7 @@ export interface Booking {
   google_event_id: string | null
   google_meet_link: string | null
   status: string
+  cancellation_token: string | null
   created_at: string
   staff?: Staff
   booking_pages?: BookingPage
@@ -76,4 +77,5 @@ export interface BookingData {
   candidateNote?: string
   bookingPageTitle: string
   bookingPageId: string
+  cancelUrl?: string
 }

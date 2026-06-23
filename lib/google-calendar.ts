@@ -328,7 +328,7 @@ export async function createCalendarEvent(staffId: string, booking: BookingData)
     sendUpdates: 'all',
     requestBody: {
       summary: `${booking.staffName} 面談: ${booking.candidateName}様`,
-      description: `${booking.bookingPageTitle}\n\n求職者: ${booking.candidateName}\nEmail: ${booking.candidateEmail}${booking.candidatePhone ? `\n電話: ${booking.candidatePhone}` : ''}${booking.candidateNote ? `\n備考: ${booking.candidateNote}` : ''}`,
+      description: `${booking.bookingPageTitle}\n\n求職者: ${booking.candidateName}\nEmail: ${booking.candidateEmail}${booking.candidatePhone ? `\n電話: ${booking.candidatePhone}` : ''}${booking.candidateNote ? `\n備考: ${booking.candidateNote}` : ''}${booking.cancelUrl ? `\n\n■ ご予約のキャンセルはこちら:\n${booking.cancelUrl}` : ''}`,
       start: {
         dateTime: booking.startTime.toISOString(),
         timeZone: JST,

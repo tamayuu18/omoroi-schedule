@@ -10,6 +10,8 @@ export default function ConfirmedClient({ slug }: { slug: string }) {
   const name = searchParams.get('name') ?? ''
   const timeStr = searchParams.get('time') ?? ''
   const meetLink = searchParams.get('meet') ?? ''
+  const bookingId = searchParams.get('id') ?? ''
+  const cancelToken = searchParams.get('token') ?? ''
 
   const time = timeStr ? new Date(timeStr) : null
 
@@ -73,6 +75,20 @@ export default function ConfirmedClient({ slug }: { slug: string }) {
               予約ページに戻る
             </Link>
           </div>
+
+          {bookingId && cancelToken && (
+            <div className="mt-6 pt-6 border-t">
+              <Link
+                href={`/book/${slug}/cancel?id=${encodeURIComponent(bookingId)}&token=${encodeURIComponent(cancelToken)}`}
+                className="block w-full border border-red-200 py-3 rounded-lg font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                予約をキャンセルする
+              </Link>
+              <p className="text-xs text-gray-400 mt-3">
+                キャンセル用リンクはカレンダー招待にも記載されています
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
