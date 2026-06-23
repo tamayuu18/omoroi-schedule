@@ -110,18 +110,53 @@ async function getBusyIntervals(
 }
 
 /**
- * 指定スタッフ(が連携している Google カレンダー)の busy 区間を取得する。
- * デバッグ用途でも使えるよう calendarId も返す。
+ * スタッフが「編集権限を持つ」全カレンダーの ID を返す。
+ *
+ * primary だけを見ていると、別カレンダー（共有/チームカレンダー等）に入れた
+ * ブロックがすり抜ける。owner/writer のカレンダーを全て対象にすることで、
+ * 本人が管理しているカレンダー上のブロックを確実に拾う。
+ * 祝日・誕生日などの購読系(accessRole=reader)はノイズになるため除外する。
+ */
+async function getCalendarIdsToCheck(
+  calendar: ReturnType<typeof google.calendar>,
+  configuredCalendarId: string
+): Promise<string[]> {
+  const ids = new Set<string>()
+  if (configuredCalendarId) ids.add(configuredCalendarId)
+  try {
+    const list = await calendar.calendarList.list({ maxResults: 250, showHidden: true })
+    for (const cal of list.data.items ?? []) {
+      if (!cal.id) continue
+      if (cal.accessRole === 'owner' || cal.accessRole === 'writer') ids.add(cal.id)
+    }
+  } catch (e) {
+    console.error('getCalendarIdsToCheck: calendarList.list failed:', e)
+  }
+  return Array.from(ids)
+}
+
+/**
+ * 指定スタッフが編集権限を持つ全カレンダーを横断して busy 区間を取得する。
+ * デバッグ用途のため、実際にチェックしたカレンダー ID 一覧も返す。
  */
 export async function getStaffBusyIntervals(
   staffId: string,
   timeMin: Date,
   timeMax: Date
-): Promise<{ calendarId: string; busy: Array<{ start: Date; end: Date }> }> {
+): Promise<{ calendarIds: string[]; busy: Array<{ start: Date; end: Date }> }> {
   const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-  const busy = await getBusyIntervals(calendar, calendarId, timeMin, timeMax)
-  return { calendarId, busy }
+  const calendarIds = await getCalendarIdsToCheck(calendar, calendarId)
+
+  const busy: Array<{ start: Date; end: Date }> = []
+  for (const id of calendarIds) {
+    try {
+      busy.push(...(await getBusyIntervals(calendar, id, timeMin, timeMax)))
+    } catch (e) {
+      console.error(`getStaffBusyIntervals: getBusyIntervals failed for calendar ${id}:`, e)
+    }
+  }
+  return { calendarIds, busy }
 }
 
 export async function getAvailableSlots(
@@ -148,9 +183,8 @@ export async function getAvailableSlots(
       .filter((s) => s.google_refresh_token)
       .map(async (staff) => {
         try {
-          const { oauth2Client, calendarId } = await getAuthClientForStaff(staff.id)
-          const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-          staffBusyMap[staff.id] = await getBusyIntervals(calendar, calendarId, dayStart, dayEnd)
+          const { busy } = await getStaffBusyIntervals(staff.id, dayStart, dayEnd)
+          staffBusyMap[staff.id] = busy
         } catch (e) {
           // 取得失敗時に空き扱いするとブロックがすり抜けるため、ログを必ず残す
           console.error(`getAvailableSlots: failed to load calendar for staff ${staff.id}:`, e)
