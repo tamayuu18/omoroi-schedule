@@ -77,16 +77,17 @@ export default function ConfirmedClient({ slug }: { slug: string }) {
           </div>
 
           {bookingId && cancelToken && (
-            <p className="text-xs text-gray-400 mt-6">
-              ご都合が悪くなった場合は
+            <div className="mt-6 pt-6 border-t">
               <Link
                 href={`/book/${slug}/cancel?id=${encodeURIComponent(bookingId)}&token=${encodeURIComponent(cancelToken)}`}
-                className="text-gray-500 underline hover:text-gray-700 mx-1"
+                className="block w-full border border-red-200 py-3 rounded-lg font-medium text-red-600 hover:bg-red-50 transition-colors"
               >
-                こちら
+                予約をキャンセルする
               </Link>
-              からキャンセルできます
-            </p>
+              <p className="text-xs text-gray-400 mt-3">
+                キャンセル用リンクはカレンダー招待にも記載されています
+              </p>
+            </div>
           )}
         </div>
       </div>

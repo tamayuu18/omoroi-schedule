@@ -76,4 +76,5 @@ export interface BookingData {
   candidateNote?: string
   bookingPageTitle: string
   bookingPageId: string
+  cancelUrl?: string
 }

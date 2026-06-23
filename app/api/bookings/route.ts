@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     // Fetch booking page for duration and title
     const { data: page } = await supabase
       .from('booking_pages')
-      .select('duration_minutes, title')
+      .select('duration_minutes, title, slug')
       .eq('id', pageId)
       .single()
 
@@ -60,6 +60,15 @@ export async function POST(req: NextRequest) {
       contactId = newContact?.id ?? null
     }
 
+    // Pre-generate the booking id and cancellation token so the cancel URL
+    // can be embedded in the calendar invite (delivered to the candidate).
+    const bookingId = crypto.randomUUID()
+    const cancellationToken = crypto.randomUUID()
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+    const cancelUrl = appUrl
+      ? `${appUrl}/book/${page.slug}/cancel?id=${bookingId}&token=${cancellationToken}`
+      : undefined
+
     // Create Google Calendar event
     let googleEventId: string | null = null
     let googleMeetLink: string | null = null
@@ -75,6 +84,7 @@ export async function POST(req: NextRequest) {
       candidateNote: note,
       bookingPageTitle: page.title,
       bookingPageId: pageId,
+      cancelUrl,
     }
 
     // Create calendar event: use admin account if set (single source of Meet URL),
@@ -93,6 +103,7 @@ export async function POST(req: NextRequest) {
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .insert({
+        id: bookingId,
         booking_page_id: pageId,
         staff_id: staffId,
         contact_id: contactId,
@@ -105,6 +116,7 @@ export async function POST(req: NextRequest) {
         google_event_id: googleEventId,
         google_meet_link: googleMeetLink,
         status: 'confirmed',
+        cancellation_token: cancellationToken,
       })
       .select()
       .single()
