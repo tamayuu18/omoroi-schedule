@@ -21,6 +21,7 @@ export interface BookingPage {
   available_start_hour: number
   available_end_hour: number
   available_days: number[]
+  min_notice_hours: number
   is_active: boolean
   created_at: string
   staff?: Staff[]
@@ -66,6 +67,7 @@ export interface TimeSlot {
 export interface BookingData {
   staffId: string
   staffName: string
+  staffEmail?: string
   startTime: Date
   endTime: Date
   candidateName: string

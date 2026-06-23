@@ -21,6 +21,7 @@ export default function StaffPage() {
   const [submitting, setSubmitting] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [watchingId, setWatchingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   async function loadStaff() {
     const res = await fetch('/api/staff')
@@ -59,6 +60,16 @@ export default function StaffPage() {
       await loadStaff()
     }
     setWatchingId(null)
+  }
+
+  async function handleDelete(id: string, staffName: string) {
+    if (!confirm(`${staffName} を削除しますか？\n（予約ページからも外れます）`)) return
+    setDeletingId(id)
+    const res = await fetch(`/api/staff/${id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.error) alert('削除エラー: ' + data.error)
+    else await loadStaff()
+    setDeletingId(null)
   }
 
   function copyId(id: string) {
@@ -148,6 +159,13 @@ export default function StaffPage() {
                   >
                     Google Calendar連携
                   </a>
+                  <button
+                    onClick={() => handleDelete(s.id, s.name)}
+                    disabled={deletingId === s.id}
+                    className="text-sm border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    {deletingId === s.id ? '削除中...' : '削除'}
+                  </button>
                 </div>
               </div>
             ))

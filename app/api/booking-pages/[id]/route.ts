@@ -5,7 +5,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const supabase = createServiceClient()
     const body = await req.json()
-    const { title, slug, description, duration_minutes, staffIds, buffer_minutes, available_start_hour, available_end_hour } = body
+    const { title, slug, description, duration_minutes, staffIds, buffer_minutes, available_start_hour, available_end_hour, min_notice_hours } = body
     const { id } = await params
 
     const { error } = await supabase
@@ -18,6 +18,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         buffer_minutes: buffer_minutes ?? 15,
         available_start_hour: available_start_hour ?? 9,
         available_end_hour: available_end_hour ?? 18,
+        min_notice_hours: min_notice_hours ?? 24,
       })
       .eq('id', id)
 

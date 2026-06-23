@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { createCalendarEvent } from '@/lib/google-calendar'
+import { createCalendarEvent, isStaffSlotFree } from '@/lib/google-calendar'
+import { notifySlackNewBooking } from '@/lib/slack'
 import { format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { createClient } from '@supabase/supabase-js'
@@ -24,9 +25,11 @@ export async function POST(req: NextRequest) {
     const supabase = createServiceClient()
 
     // Fetch booking page for duration and title
+    // select('*') にしておくことで、min_notice_hours カラム未追加(マイグレーション未適用)でも
+    // エラーにならず、その場合は下で 24 時間にフォールバックする。
     const { data: page } = await supabase
       .from('booking_pages')
-      .select('duration_minutes, title')
+      .select('*')
       .eq('id', pageId)
       .single()
 
@@ -34,10 +37,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Booking page not found' }, { status: 404 })
     }
 
-    const { data: staff } = await supabase.from('staff').select('name').eq('id', staffId).single()
+    const { data: staff } = await supabase.from('staff').select('name, email').eq('id', staffId).single()
 
     const startTime = new Date(slotTime)
     const endTime = new Date(startTime.getTime() + page.duration_minutes * 60 * 1000)
+
+    // --- サーバー側の予約可否チェック ---
+    // 一覧表示はあくまで表示時点の空き状況。確定時に改めて検証することで、
+    // 「24時間以内の予約」や「ブロック済み時間への予約」が入るのを防ぐ。
+
+    // 1) 最小リードタイム（例: 24時間後以降のみ予約可）
+    const minNoticeHours = page.min_notice_hours ?? 24
+    const earliestBookable = new Date(Date.now() + minNoticeHours * 60 * 60 * 1000)
+    if (startTime < earliestBookable) {
+      return NextResponse.json(
+        { error: `予約はあと${minNoticeHours}時間以降の枠のみ可能です。` },
+        { status: 409 }
+      )
+    }
+
+    // 2) 既存の確定予約との重複（DB 側・確実）
+    const { data: conflicting } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('staff_id', staffId)
+      .eq('status', 'confirmed')
+      .lt('start_time', endTime.toISOString())
+      .gt('end_time', startTime.toISOString())
+      .limit(1)
+
+    if (conflicting && conflicting.length > 0) {
+      return NextResponse.json(
+        { error: 'この時間帯はすでに予約が入っています。別の時間をお選びください。' },
+        { status: 409 }
+      )
+    }
+
+    // 3) スタッフの Google カレンダー上のブロック（busy）と重複していないか
+    const slotFree = await isStaffSlotFree(staffId, startTime, endTime)
+    if (!slotFree) {
+      return NextResponse.json(
+        { error: 'この時間帯は予約できません。別の時間をお選びください。' },
+        { status: 409 }
+      )
+    }
 
     // Upsert contact (CRM integration)
     let contactId: string | null = null
@@ -65,6 +108,7 @@ export async function POST(req: NextRequest) {
     const bookingData = {
       staffId,
       staffName: staff?.name ?? '担当者',
+      staffEmail: staff?.email ?? undefined,
       startTime,
       endTime,
       candidateName: name,
@@ -74,22 +118,17 @@ export async function POST(req: NextRequest) {
       bookingPageTitle: page.title,
       bookingPageId: pageId,
     }
+
+    // Create calendar event: use admin account if set (single source of Meet URL),
+    // otherwise fall back to assigned staff's account
+    const adminStaffId = process.env.ADMIN_STAFF_ID
+    const calendarCreatorId = adminStaffId ?? staffId
     try {
-      const eventResult = await createCalendarEvent(staffId, bookingData)
+      const eventResult = await createCalendarEvent(calendarCreatorId, bookingData)
       googleEventId = eventResult.eventId
       googleMeetLink = eventResult.meetLink
     } catch (calErr) {
       console.error('Google Calendar error (non-fatal):', calErr)
-    }
-
-    // Also create event on admin's calendar if ADMIN_STAFF_ID is set and different from assigned staff
-    const adminStaffId = process.env.ADMIN_STAFF_ID
-    if (adminStaffId && adminStaffId !== staffId) {
-      try {
-        await createCalendarEvent(adminStaffId, { ...bookingData, staffId: adminStaffId })
-      } catch (adminCalErr) {
-        console.error('Admin Google Calendar error (non-fatal):', adminCalErr)
-      }
     }
 
     // Create booking
@@ -115,6 +154,20 @@ export async function POST(req: NextRequest) {
     if (bookingError) {
       console.error('Booking insert error:', bookingError)
       return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
+    }
+
+    // Slack notification
+    if (booking) {
+      const jstStartSlack = toZonedTime(startTime, 'Asia/Tokyo')
+      await notifySlackNewBooking({
+        candidateName: name,
+        candidateEmail: email,
+        candidatePhone: phone,
+        staffName: staff?.name ?? '担当者',
+        pageTitle: page.title,
+        startTimeJst: format(jstStartSlack, 'yyyy年M月d日 HH:mm'),
+        meetLink: googleMeetLink,
+      })
     }
 
     // Insert CRM activity
