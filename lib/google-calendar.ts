@@ -71,11 +71,15 @@ export async function getAvailableSlots(
   durationMinutes: number,
   bufferMinutes: number,
   startHour: number,
-  endHour: number
+  endHour: number,
+  minNoticeHours: number = 24
 ): Promise<AvailableSlot[]> {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`)
   const dayEnd = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:00:00+09:00`)
+
+  // 「今から minNoticeHours 時間後」以降のスロットのみ予約可能にする。
+  const earliestBookable = new Date(Date.now() + minNoticeHours * 60 * 60 * 1000)
 
   const staffBusyMap: Record<string, Array<{ start: Date; end: Date }>> = {}
 
@@ -145,6 +149,12 @@ export async function getAvailableSlots(
     const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
     if (slotEnd > dayEnd) break
 
+    // 最小リードタイムより前のスロットはスキップ（例: 24時間以内の予約は不可）
+    if (slotTime < earliestBookable) {
+      slotTime.setMinutes(slotTime.getMinutes() + durationMinutes + bufferMinutes)
+      continue
+    }
+
     // Find available staff, then pick the one with fewest total bookings (even distribution)
     const availableStaff = staffList
       .filter((s) => s.google_refresh_token)
@@ -168,6 +178,34 @@ export async function getAvailableSlots(
   }
 
   return slots
+}
+
+/**
+ * 予約確定時にスタッフのカレンダーが指定スロットで本当に空いているか再確認する。
+ * 一覧表示後にスタッフがカレンダーをブロックした場合や、二重予約・古い画面からの
+ * 送信などで、ブロック済みの時間に予約が入ってしまうのを防ぐ。
+ *
+ * カレンダーへアクセスできない（トークン切れ等）場合は true を返し既存挙動を維持する。
+ * DB 側の確定予約チェックは別途呼び出し側で行う。
+ */
+export async function isStaffSlotFree(staffId: string, start: Date, end: Date): Promise<boolean> {
+  try {
+    const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+    const resp = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        timeZone: JST,
+        items: [{ id: calendarId }],
+      },
+    })
+    const busy = resp.data.calendars?.[calendarId]?.busy ?? []
+    return !busy.some((b) => start < new Date(b.end!) && end > new Date(b.start!))
+  } catch {
+    // カレンダー照会に失敗した場合はブロックせず通す（DB 側チェックで二重予約は防ぐ）
+    return true
+  }
 }
 
 export async function deleteCalendarEvent(staffId: string, eventId: string) {
