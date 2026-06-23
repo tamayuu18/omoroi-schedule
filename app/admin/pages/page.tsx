@@ -16,6 +16,7 @@ interface BookingPage {
   buffer_minutes: number
   available_start_hour: number
   available_end_hour: number
+  min_notice_hours: number
   is_active: boolean
   staff?: Staff[]
 }
@@ -28,6 +29,7 @@ const EMPTY_FORM = {
   buffer_minutes: 15,
   available_start_hour: 9,
   available_end_hour: 18,
+  min_notice_hours: 24,
   staffIds: [] as string[],
 }
 
@@ -84,6 +86,7 @@ export default function PagesPage() {
       buffer_minutes: page.buffer_minutes ?? 15,
       available_start_hour: page.available_start_hour ?? 9,
       available_end_hour: page.available_end_hour ?? 18,
+      min_notice_hours: page.min_notice_hours ?? 24,
       staffIds: page.staff?.map((s) => s.id) ?? [],
     })
     setEditingId(page.id)
@@ -211,6 +214,17 @@ export default function PagesPage() {
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">予約受付の最小リードタイム（時間）</label>
+              <input
+                type="number"
+                min={0}
+                value={form.min_notice_hours}
+                onChange={(e) => setForm({ ...form, min_notice_hours: Number(e.target.value) })}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">今から指定時間後以降の枠のみ予約可能になります（例: 24 = 24時間後以降）。</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">担当スタッフ</label>

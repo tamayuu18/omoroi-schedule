@@ -12,6 +12,7 @@ interface BookingPage {
   duration_minutes: number
   max_days_ahead: number
   available_days: number[]
+  min_notice_hours: number
 }
 
 interface TimeSlot {
@@ -31,6 +32,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' })
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [step, setStep] = useState<'calendar' | 'slots' | 'form'>('calendar')
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
   async function handleDayClick(day: Date) {
     setSelectedDate(day)
     setSelectedSlot(null)
+    setSubmitError(null)
     setSlotsLoading(true)
     setStep('slots')
     const dateStr = format(day, 'yyyy-MM-dd')
@@ -57,6 +60,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const res = await fetch('/api/bookings', {
         method: 'POST',
@@ -81,7 +85,21 @@ export default function BookPage({ params }: { params: { slug: string } }) {
           token: data.booking?.cancellation_token ?? '',
         })
         router.push(`/book/${params.slug}/confirmed?${searchParams.toString()}`)
+      } else {
+        // 確定時の検証エラー（枠が埋まった・ブロックされた・リードタイム不足など）
+        setSubmitError(data.error ?? '予約できませんでした。時間を選び直してください。')
+        // 空き状況が変わっている可能性があるため、選択中の日付を再取得
+        if (selectedDate) {
+          const dateStr = format(selectedDate, 'yyyy-MM-dd')
+          const refresh = await fetch(`/api/availability?pageId=${page!.id}&date=${dateStr}`)
+          const refreshData = await refresh.json()
+          setSlots(refreshData.slots ?? [])
+        }
+        setSelectedSlot(null)
+        setStep('slots')
       }
+    } catch {
+      setSubmitError('通信エラーが発生しました。もう一度お試しください。')
     } finally {
       setSubmitting(false)
     }
@@ -105,6 +123,9 @@ export default function BookPage({ params }: { params: { slug: string } }) {
 
   const today = startOfDay(new Date())
   const maxDate = addDays(today, page.max_days_ahead)
+  // 最小リードタイム（例: 24時間後）より前の日は、その日の終わりでも予約不可なら丸ごと無効化
+  const minNoticeHours = page.min_notice_hours ?? 24
+  const earliestBookable = new Date(Date.now() + minNoticeHours * 60 * 60 * 1000)
   const days = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) })
   const startDow = startOfMonth(currentMonth).getDay()
 
@@ -147,7 +168,10 @@ export default function BookPage({ params }: { params: { slug: string } }) {
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: startDow }).map((_, i) => <div key={i} />)}
             {days.map((day) => {
-              const isDisabled = isBefore(day, today) || isBefore(maxDate, day) || !page.available_days.includes(day.getDay())
+              // その日の終わり(翌0時)が earliestBookable より前なら、その日は予約不可
+              const endOfDay = addDays(startOfDay(day), 1)
+              const tooSoon = isBefore(endOfDay, earliestBookable)
+              const isDisabled = isBefore(day, today) || tooSoon || isBefore(maxDate, day) || !page.available_days.includes(day.getDay())
               const isSelected = selectedDate ? isSameDay(day, selectedDate) : false
               return (
                 <button
@@ -174,6 +198,11 @@ export default function BookPage({ params }: { params: { slug: string } }) {
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
               {format(selectedDate, 'M月d日(E)', { locale: ja })}の空き時間
             </h2>
+            {submitError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
+                {submitError}
+              </p>
+            )}
             {slotsLoading ? (
               <p className="text-gray-500 text-sm">読み込み中...</p>
             ) : slots.length === 0 ? (
@@ -187,7 +216,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
                       {amSlots.map((slot) => (
                         <button
                           key={slot.time}
-                          onClick={() => { setSelectedSlot(slot); setStep('form') }}
+                          onClick={() => { setSelectedSlot(slot); setSubmitError(null); setStep('form') }}
                           className={`py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
                             selectedSlot?.time === slot.time
                               ? 'bg-indigo-600 text-white border-indigo-600'
@@ -207,7 +236,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
                       {pmSlots.map((slot) => (
                         <button
                           key={slot.time}
-                          onClick={() => { setSelectedSlot(slot); setStep('form') }}
+                          onClick={() => { setSelectedSlot(slot); setSubmitError(null); setStep('form') }}
                           className={`py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
                             selectedSlot?.time === slot.time
                               ? 'bg-indigo-600 text-white border-indigo-600'
@@ -271,6 +300,11 @@ export default function BookPage({ params }: { params: { slug: string } }) {
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+              {submitError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {submitError}
+                </p>
+              )}
               <button
                 type="submit"
                 disabled={submitting}

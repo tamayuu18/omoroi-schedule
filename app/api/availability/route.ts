@@ -43,7 +43,8 @@ export async function GET(req: NextRequest) {
       page.duration_minutes,
       page.buffer_minutes ?? 15,
       page.available_start_hour,
-      page.available_end_hour
+      page.available_end_hour,
+      page.min_notice_hours ?? 24
     )
 
     return NextResponse.json({

@@ -65,17 +65,65 @@ export interface AvailableSlot {
   staffName: string
 }
 
+/**
+ * 指定カレンダーの [timeMin, timeMax) 区間にある「埋まっている」時間帯を返す。
+ *
+ * freebusy API ではなく events.list を使う理由:
+ *   freebusy は「予定なし(Free)」表示や終日予定をビジーとして返さないため、
+ *   スタッフが終日でブロックした予定などがすり抜けてしまう。events.list なら
+ *   全予定を取得できるので、終日・Free 表示のブロックも確実に除外できる。
+ *
+ * 除外するもの: キャンセル済み予定、本人が「不参加」と回答した予定。
+ */
+async function getBusyIntervals(
+  calendar: ReturnType<typeof google.calendar>,
+  calendarId: string,
+  timeMin: Date,
+  timeMax: Date
+): Promise<Array<{ start: Date; end: Date }>> {
+  const resp = await calendar.events.list({
+    calendarId,
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 2500,
+  })
+
+  const intervals: Array<{ start: Date; end: Date }> = []
+  for (const ev of resp.data.items ?? []) {
+    if (ev.status === 'cancelled') continue
+    // 本人が「不参加」と回答している予定は空き扱い
+    const self = ev.attendees?.find((a) => a.self)
+    if (self?.responseStatus === 'declined') continue
+
+    let start: Date | null = null
+    let end: Date | null = null
+    if (ev.start?.dateTime) start = new Date(ev.start.dateTime)
+    else if (ev.start?.date) start = new Date(`${ev.start.date}T00:00:00+09:00`)
+    if (ev.end?.dateTime) end = new Date(ev.end.dateTime)
+    else if (ev.end?.date) end = new Date(`${ev.end.date}T00:00:00+09:00`) // 終日の end.date は排他的＝そのままで終端
+
+    if (start && end) intervals.push({ start, end })
+  }
+  return intervals
+}
+
 export async function getAvailableSlots(
   staffList: Array<{ id: string; name: string; google_refresh_token: string | null; google_calendar_id: string }>,
   date: Date,
   durationMinutes: number,
   bufferMinutes: number,
   startHour: number,
-  endHour: number
+  endHour: number,
+  minNoticeHours: number = 24
 ): Promise<AvailableSlot[]> {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`)
   const dayEnd = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:00:00+09:00`)
+
+  // 「今から minNoticeHours 時間後」以降のスロットのみ予約可能にする。
+  const earliestBookable = new Date(Date.now() + minNoticeHours * 60 * 60 * 1000)
 
   const staffBusyMap: Record<string, Array<{ start: Date; end: Date }>> = {}
 
@@ -86,19 +134,7 @@ export async function getAvailableSlots(
         try {
           const { oauth2Client, calendarId } = await getAuthClientForStaff(staff.id)
           const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-          const freeBusyResp = await calendar.freebusy.query({
-            requestBody: {
-              timeMin: dayStart.toISOString(),
-              timeMax: dayEnd.toISOString(),
-              timeZone: JST,
-              items: [{ id: calendarId }],
-            },
-          })
-          const busy = freeBusyResp.data.calendars?.[calendarId]?.busy ?? []
-          staffBusyMap[staff.id] = busy.map((b) => ({
-            start: new Date(b.start!),
-            end: new Date(b.end!),
-          }))
+          staffBusyMap[staff.id] = await getBusyIntervals(calendar, calendarId, dayStart, dayEnd)
         } catch {
           staffBusyMap[staff.id] = []
         }
@@ -145,6 +181,12 @@ export async function getAvailableSlots(
     const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
     if (slotEnd > dayEnd) break
 
+    // 最小リードタイムより前のスロットはスキップ（例: 24時間以内の予約は不可）
+    if (slotTime < earliestBookable) {
+      slotTime.setMinutes(slotTime.getMinutes() + durationMinutes + bufferMinutes)
+      continue
+    }
+
     // Find available staff, then pick the one with fewest total bookings (even distribution)
     const availableStaff = staffList
       .filter((s) => s.google_refresh_token)
@@ -168,6 +210,26 @@ export async function getAvailableSlots(
   }
 
   return slots
+}
+
+/**
+ * 予約確定時にスタッフのカレンダーが指定スロットで本当に空いているか再確認する。
+ * 一覧表示後にスタッフがカレンダーをブロックした場合や、二重予約・古い画面からの
+ * 送信などで、ブロック済みの時間に予約が入ってしまうのを防ぐ。
+ *
+ * カレンダーへアクセスできない（トークン切れ等）場合は true を返し既存挙動を維持する。
+ * DB 側の確定予約チェックは別途呼び出し側で行う。
+ */
+export async function isStaffSlotFree(staffId: string, start: Date, end: Date): Promise<boolean> {
+  try {
+    const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+    const busy = await getBusyIntervals(calendar, calendarId, start, end)
+    return !busy.some((b) => start < b.end && end > b.start)
+  } catch {
+    // カレンダー照会に失敗した場合はブロックせず通す（DB 側チェックで二重予約は防ぐ）
+    return true
+  }
 }
 
 export async function deleteCalendarEvent(staffId: string, eventId: string) {
