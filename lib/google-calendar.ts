@@ -109,6 +109,21 @@ async function getBusyIntervals(
   return intervals
 }
 
+/**
+ * 指定スタッフ(が連携している Google カレンダー)の busy 区間を取得する。
+ * デバッグ用途でも使えるよう calendarId も返す。
+ */
+export async function getStaffBusyIntervals(
+  staffId: string,
+  timeMin: Date,
+  timeMax: Date
+): Promise<{ calendarId: string; busy: Array<{ start: Date; end: Date }> }> {
+  const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+  const busy = await getBusyIntervals(calendar, calendarId, timeMin, timeMax)
+  return { calendarId, busy }
+}
+
 export async function getAvailableSlots(
   staffList: Array<{ id: string; name: string; google_refresh_token: string | null; google_calendar_id: string }>,
   date: Date,
@@ -116,7 +131,8 @@ export async function getAvailableSlots(
   bufferMinutes: number,
   startHour: number,
   endHour: number,
-  minNoticeHours: number = 24
+  minNoticeHours: number = 24,
+  adminStaffId?: string
 ): Promise<AvailableSlot[]> {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`)
@@ -135,11 +151,28 @@ export async function getAvailableSlots(
           const { oauth2Client, calendarId } = await getAuthClientForStaff(staff.id)
           const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
           staffBusyMap[staff.id] = await getBusyIntervals(calendar, calendarId, dayStart, dayEnd)
-        } catch {
+        } catch (e) {
+          // 取得失敗時に空き扱いするとブロックがすり抜けるため、ログを必ず残す
+          console.error(`getAvailableSlots: failed to load calendar for staff ${staff.id}:`, e)
           staffBusyMap[staff.id] = []
         }
       })
   )
+
+  // 予約イベントは ADMIN_STAFF_ID が設定されていると全て管理者カレンダーに作成される。
+  // そのため、管理者カレンダーが埋まっている時間はどのスタッフでも予約不可。
+  // 管理者カレンダーの busy を全スタッフの busy に合算する。
+  if (adminStaffId) {
+    try {
+      const { busy: adminBusy } = await getStaffBusyIntervals(adminStaffId, dayStart, dayEnd)
+      for (const staff of staffList) {
+        if (!staffBusyMap[staff.id]) staffBusyMap[staff.id] = []
+        staffBusyMap[staff.id].push(...adminBusy)
+      }
+    } catch (e) {
+      console.error(`getAvailableSlots: failed to load admin calendar ${adminStaffId}:`, e)
+    }
+  }
 
   const supabase = createServiceClient()
   const { data: existingBookings } = await supabase
@@ -222,12 +255,12 @@ export async function getAvailableSlots(
  */
 export async function isStaffSlotFree(staffId: string, start: Date, end: Date): Promise<boolean> {
   try {
-    const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-    const busy = await getBusyIntervals(calendar, calendarId, start, end)
+    const { busy } = await getStaffBusyIntervals(staffId, start, end)
     return !busy.some((b) => start < b.end && end > b.start)
-  } catch {
-    // カレンダー照会に失敗した場合はブロックせず通す（DB 側チェックで二重予約は防ぐ）
+  } catch (e) {
+    // カレンダー照会に失敗した場合はブロックせず通す（DB 側チェックで二重予約は防ぐ）。
+    // ただし静かに通すとブロックすり抜けに気づけないため必ずログを残す。
+    console.error(`isStaffSlotFree: failed to check calendar for staff ${staffId}:`, e)
     return true
   }
 }

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { createServiceClient } from '@/lib/supabase/server'
-import { getOAuthClient } from '@/lib/google-calendar'
+import { getOAuthClient, getStaffBusyIntervals } from '@/lib/google-calendar'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const staffId = searchParams.get('staffId')
+  // ?date=YYYY-MM-DD を付けると、その日(JST 0:00〜翌0:00)にシステムが「埋まっている」と
+  // 判定する時間帯一覧を返す。ブロックが検出されているか確認するのに使う。
+  const dateStr = searchParams.get('date')
   if (!staffId) return NextResponse.json({ error: 'staffId required' }, { status: 400 })
 
   const supabase = createServiceClient()
@@ -44,11 +47,26 @@ export async function GET(req: NextRequest) {
       singleEvents: true,
     })
 
+    // date 指定時は、その日に検出される busy 区間（＝予約をブロックする時間帯）を返す
+    let busyForDate: unknown = undefined
+    if (dateStr) {
+      const dayStart = new Date(`${dateStr}T00:00:00+09:00`)
+      const dayEnd = new Date(`${dateStr}T24:00:00+09:00`)
+      const { busy } = await getStaffBusyIntervals(staffId, dayStart, dayEnd)
+      busyForDate = {
+        date: dateStr,
+        checked_calendar_id: calendarId,
+        busy_count: busy.length,
+        busy: busy.map((b) => ({ start: b.start.toISOString(), end: b.end.toISOString() })),
+      }
+    }
+
     return NextResponse.json({
       ...info,
       status: 'ok',
       calendar_accessible: true,
       events_count: eventsResp.data.items?.length ?? 0,
+      ...(busyForDate ? { busy_for_date: busyForDate } : {}),
     })
   } catch (err: unknown) {
     return NextResponse.json({

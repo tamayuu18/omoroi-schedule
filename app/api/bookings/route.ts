@@ -73,9 +73,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3) スタッフの Google カレンダー上のブロック（busy）と重複していないか
-    const slotFree = await isStaffSlotFree(staffId, startTime, endTime)
-    if (!slotFree) {
+    // 3) Google カレンダー上のブロック（busy）と重複していないか。
+    //    担当スタッフのカレンダーに加え、実際に予定が作成されるカレンダー
+    //    （ADMIN_STAFF_ID が設定されていれば管理者カレンダー）も確認する。
+    const adminStaffIdForCheck = process.env.ADMIN_STAFF_ID
+    const calendarsToCheck = Array.from(
+      new Set([staffId, adminStaffIdForCheck].filter(Boolean) as string[])
+    )
+    const freeResults = await Promise.all(
+      calendarsToCheck.map((id) => isStaffSlotFree(id, startTime, endTime))
+    )
+    if (freeResults.some((free) => !free)) {
       return NextResponse.json(
         { error: 'この時間帯は予約できません。別の時間をお選びください。' },
         { status: 409 }
