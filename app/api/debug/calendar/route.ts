@@ -52,10 +52,10 @@ export async function GET(req: NextRequest) {
     if (dateStr) {
       const dayStart = new Date(`${dateStr}T00:00:00+09:00`)
       const dayEnd = new Date(`${dateStr}T24:00:00+09:00`)
-      const { busy } = await getStaffBusyIntervals(staffId, dayStart, dayEnd)
+      const { calendarIds, busy } = await getStaffBusyIntervals(staffId, dayStart, dayEnd)
       busyForDate = {
         date: dateStr,
-        checked_calendar_id: calendarId,
+        checked_calendar_ids: calendarIds,
         busy_count: busy.length,
         busy: busy.map((b) => ({ start: b.start.toISOString(), end: b.end.toISOString() })),
       }
