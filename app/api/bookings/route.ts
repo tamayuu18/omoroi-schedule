@@ -25,9 +25,11 @@ export async function POST(req: NextRequest) {
     const supabase = createServiceClient()
 
     // Fetch booking page for duration and title
+    // select('*') にしておくことで、min_notice_hours カラム未追加(マイグレーション未適用)でも
+    // エラーにならず、その場合は下で 24 時間にフォールバックする。
     const { data: page } = await supabase
       .from('booking_pages')
-      .select('duration_minutes, title, min_notice_hours')
+      .select('*')
       .eq('id', pageId)
       .single()
 
