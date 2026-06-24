@@ -93,6 +93,10 @@ async function getBusyIntervals(
   const intervals: Array<{ start: Date; end: Date }> = []
   for (const ev of resp.data.items ?? []) {
     if (ev.status === 'cancelled') continue
+    // 「予定なし(Free)」表示の予定はブロックしない（Google標準のスケジューリングと同じ挙動）。
+    // 終日予定はデフォルトが Free のため、週末の情報系終日予定などで丸ごとブロックされるのを防ぐ。
+    // ブロックしたい場合は時間指定予定（デフォルト Busy）か、終日予定を「予定あり」にする。
+    if (ev.transparency === 'transparent') continue
     // 本人が「不参加」と回答している予定は空き扱い
     const self = ev.attendees?.find((a) => a.self)
     if (self?.responseStatus === 'declined') continue
