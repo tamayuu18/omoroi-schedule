@@ -13,6 +13,24 @@ function createCrmClient() {
   return createClient(url, key)
 }
 
+// 提携会社経由の代理予約で使われる「本人を識別しない」共通メアド一覧。
+// これらのアドレスは全求職者で固定（例: foresma L-reach の lreach_schedule@foresma.jp）
+// のため、メアドで照合すると別人の求職者が同一人物に集約されてしまう。
+// CRM_PROXY_EMAILS でカンマ区切りで上書き可能。
+function getProxyEmails(): Set<string> {
+  const raw = process.env.CRM_PROXY_EMAILS ?? 'lreach_schedule@foresma.jp'
+  return new Set(
+    raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  )
+}
+
+function isProxyEmailAddress(email: string): boolean {
+  return getProxyEmails().has(email.trim().toLowerCase())
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -91,20 +109,49 @@ export async function POST(req: NextRequest) {
     }
 
     // Upsert contact (CRM integration)
+    // 提携会社経由の予約はメアド欄が共通の固定アドレスのため、メアドで照合すると
+    // 別の求職者が1件の contact に集約されてしまう。その場合は本人の電話番号→氏名で照合する。
+    const isProxyEmail = isProxyEmailAddress(email)
     let contactId: string | null = null
-    const { data: existingContact } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('email', email)
-      .single()
+    let existingContact: { id: string } | null = null
+
+    if (isProxyEmail) {
+      if (phone) {
+        const { data } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('phone', phone)
+          .limit(1)
+          .maybeSingle()
+        existingContact = data
+      }
+      if (!existingContact) {
+        const { data } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('name', name)
+          .limit(1)
+          .maybeSingle()
+        existingContact = data
+      }
+    } else {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('email', email)
+        .limit(1)
+        .maybeSingle()
+      existingContact = data
+    }
 
     if (existingContact) {
       contactId = existingContact.id
       await supabase.from('contacts').update({ updated_at: new Date().toISOString() }).eq('id', contactId)
     } else {
-      const { data: newContact, error: contactInsertError } = await supabase
+      const { data: newContact } = await supabase
         .from('contacts')
-        .insert({ name, email, phone: phone || null, source: 'booking' })
+        // 提携先の固定メアドは contacts に保存しない（別人の誤集約を防ぐため）。
+        .insert({ name, email: isProxyEmail ? null : email, phone: phone || null, source: 'booking' })
         .select('id')
         .single()
       contactId = newContact?.id ?? null
@@ -207,17 +254,41 @@ export async function POST(req: NextRequest) {
 
       const crmSupabase = createCrmClient()
       if (crmSupabase) {
-        // Look up CRM Customer by email, create if not found
+        // 求職者本人を特定して CRM Customer を照合（無ければ作成）。
+        // 提携会社経由(isProxyEmail)はメアドが共通の固定アドレスのため本人識別に
+        // 使えない。その場合は本人の電話番号→氏名の順で既存 Customer を探す。
         let crmCustomerId: string | null = null
-        const { data: crmCustomer, error: crmLookupError } = await crmSupabase
-          .from('Customer')
-          .select('id')
-          .eq('email', email)
-          .single()
 
-        if (crmCustomer) {
-          crmCustomerId = crmCustomer.id
+        if (isProxyEmail) {
+          if (phone) {
+            const { data } = await crmSupabase
+              .from('Customer')
+              .select('id')
+              .eq('phone', phone)
+              .limit(1)
+              .maybeSingle()
+            if (data) crmCustomerId = data.id
+          }
+          if (!crmCustomerId) {
+            const { data } = await crmSupabase
+              .from('Customer')
+              .select('id')
+              .eq('name', name)
+              .limit(1)
+              .maybeSingle()
+            if (data) crmCustomerId = data.id
+          }
         } else {
+          const { data } = await crmSupabase
+            .from('Customer')
+            .select('id')
+            .eq('email', email)
+            .limit(1)
+            .maybeSingle()
+          if (data) crmCustomerId = data.id
+        }
+
+        if (!crmCustomerId) {
           const now = new Date().toISOString()
           const newId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
           const { data: newCustomer } = await crmSupabase
@@ -225,7 +296,9 @@ export async function POST(req: NextRequest) {
             .insert({
               id: newId,
               name,
-              email,
+              // 提携先の固定メアドは Customer に保存しない。保存すると別人同士が
+              // 同一メアドになり、将来メアド照合で誤って同一視されるため。
+              email: isProxyEmail ? null : email,
               phone: phone || null,
               ca: staff?.name ?? '',
               status: '面談予約済み',
