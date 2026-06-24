@@ -17,9 +17,12 @@ interface BookingPage {
   available_start_hour: number
   available_end_hour: number
   min_notice_hours: number
+  available_days: number[]
   is_active: boolean
   staff?: Staff[]
 }
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
 
 const EMPTY_FORM = {
   title: '',
@@ -30,6 +33,7 @@ const EMPTY_FORM = {
   available_start_hour: 9,
   available_end_hour: 18,
   min_notice_hours: 24,
+  available_days: [1, 2, 3, 4, 5],
   staffIds: [] as string[],
 }
 
@@ -87,6 +91,7 @@ export default function PagesPage() {
       available_start_hour: page.available_start_hour ?? 9,
       available_end_hour: page.available_end_hour ?? 18,
       min_notice_hours: page.min_notice_hours ?? 24,
+      available_days: page.available_days ?? [1, 2, 3, 4, 5],
       staffIds: page.staff?.map((s) => s.id) ?? [],
     })
     setEditingId(page.id)
@@ -225,6 +230,36 @@ export default function PagesPage() {
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <p className="text-xs text-gray-400 mt-1">今から指定時間後以降の枠のみ予約可能になります（例: 24 = 24時間後以降）。</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">受付曜日</label>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAY_LABELS.map((label, dow) => {
+                  const checked = form.available_days.includes(dow)
+                  return (
+                    <button
+                      key={dow}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          available_days: checked
+                            ? form.available_days.filter((d) => d !== dow)
+                            : [...form.available_days, dow].sort((a, b) => a - b),
+                        })
+                      }
+                      className={`w-10 h-10 rounded-lg text-sm font-medium border transition-colors ${
+                        checked
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'border-gray-200 text-gray-600 hover:border-indigo-400'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">予約を受け付ける曜日を選択します（青＝受付可）。土日も予約可にする場合は土・日を選択。</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">担当スタッフ</label>
