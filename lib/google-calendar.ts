@@ -1,5 +1,6 @@
 import { google } from 'googleapis'
 import { createServiceClient } from './supabase/server'
+import { notifySlackWarning } from './slack'
 import type { BookingData } from './types'
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -297,8 +298,16 @@ export async function isStaffSlotFree(staffId: string, start: Date, end: Date): 
     return !busy.some((b) => start < b.end && end > b.start)
   } catch (e) {
     // カレンダー照会に失敗した場合はブロックせず通す（DB 側チェックで二重予約は防ぐ）。
-    // ただし静かに通すとブロックすり抜けに気づけないため必ずログを残す。
+    // ただし静かに通すとブロックすり抜けに気づけないため、ログ + Slack 警告を残す。
     console.error(`isStaffSlotFree: failed to check calendar for staff ${staffId}:`, e)
+    await notifySlackWarning({
+      title: 'カレンダーの空き確認に失敗（ブロックすり抜けの恐れ）',
+      detail:
+        `予約確定時のカレンダー空き確認に失敗したため、空き扱いで予約を通しました。\n` +
+        `Google連携が切れている可能性があります（管理画面で再連携してください）。\n\n` +
+        `*staffId:* ${staffId}\n` +
+        `*エラー:* ${e instanceof Error ? e.message : String(e)}`,
+    })
     return true
   }
 }

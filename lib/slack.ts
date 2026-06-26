@@ -50,6 +50,43 @@ export async function notifySlackNewBooking(data: SlackBookingNotification) {
   }
 }
 
+interface SlackWarningNotification {
+  title: string
+  detail: string
+}
+
+/**
+ * カレンダー登録失敗・空き確認失敗など、サイレントに握り潰されがちな異常を
+ * Slack に ⚠️ 警告として通知する。トークン失効などに即気づけるようにするのが目的。
+ */
+export async function notifySlackWarning(data: SlackWarningNotification) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL
+  if (!webhookUrl) return
+
+  const payload = {
+    attachments: [
+      {
+        color: '#f59e0b',
+        pretext: `⚠️ *${data.title}*`,
+        mrkdwn_in: ['pretext', 'text'],
+        text: data.detail,
+        footer: 'omoroi schedule',
+        ts: Math.floor(Date.now() / 1000).toString(),
+      },
+    ],
+  }
+
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (e) {
+    console.error('Slack warning error (non-fatal):', e)
+  }
+}
+
 interface SlackCancelNotification {
   candidateName: string
   candidateEmail: string
