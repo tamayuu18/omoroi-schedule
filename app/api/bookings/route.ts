@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createCalendarEvent, isStaffSlotFree } from '@/lib/google-calendar'
-import { notifySlackNewBooking } from '@/lib/slack'
+import { notifySlackNewBooking, notifySlackWarning } from '@/lib/slack'
 import { format } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { createClient } from '@supabase/supabase-js'
@@ -194,6 +194,20 @@ export async function POST(req: NextRequest) {
       googleMeetLink = eventResult.meetLink
     } catch (calErr) {
       console.error('Google Calendar error (non-fatal):', calErr)
+      // 予約自体は受け付けるが、カレンダー登録に失敗したことに気づけるよう Slack に警告。
+      // トークン失効(invalid_grant)などはここで顕在化する。
+      const jstStartWarn = toZonedTime(startTime, 'Asia/Tokyo')
+      await notifySlackWarning({
+        title: 'カレンダー登録に失敗しました（手動対応が必要）',
+        detail:
+          `予約は受け付けましたが、Googleカレンダーへの登録に失敗しました。手動で予定を追加してください。\n` +
+          `Google連携が切れている可能性があります（管理画面で再連携してください）。\n\n` +
+          `*担当:* ${staff?.name ?? '担当者'}\n` +
+          `*求職者:* ${name}\n` +
+          `*日時:* ${format(jstStartWarn, 'yyyy年M月d日 HH:mm')}\n` +
+          `*メール:* ${email}\n` +
+          `*エラー:* ${calErr instanceof Error ? calErr.message : String(calErr)}`,
+      })
     }
 
     // Create booking
