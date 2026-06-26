@@ -307,7 +307,10 @@ export async function deleteCalendarEvent(staffId: string, eventId: string) {
   const { oauth2Client, calendarId } = await getAuthClientForStaff(staffId)
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
   try {
-    await calendar.events.delete({ calendarId, eventId })
+    // sendUpdates: 'all' を付けないと参加者（求職者・担当者）にキャンセル通知が
+    // 届かず、参加者側のカレンダーから予定が消えない。作成時の sendUpdates: 'all'
+    // と対称にして、キャンセル時も全参加者のカレンダーから確実に削除されるようにする。
+    await calendar.events.delete({ calendarId, eventId, sendUpdates: 'all' })
   } catch (e: any) {
     if (e?.code !== 410 && e?.code !== 404) throw e
   }
