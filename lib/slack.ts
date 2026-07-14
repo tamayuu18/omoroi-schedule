@@ -1,3 +1,25 @@
+// スタッフ名（姓）→ Slack メンバーID
+const SLACK_MEMBER_IDS: Record<string, string> = {
+  '岩田': 'U0B9BM1QY4T',
+  '新': 'U0B9W7EKCH5',
+  '笠原': 'U0B9QDPLWP8',
+  '濱野': 'U0B9UGLJDDL',
+  '岸田': 'U0BBSFAR6SK',
+  '岸': 'U0B9L2CQ00K',
+  '小宮': 'U0BBH6NRLES',
+  '長谷川': 'U0BAC9KCCCQ',
+  '中野': 'U0B9RGWN7RS',
+  '大田': 'U0B9YF6BKQR',
+}
+
+// 「岸田」が「岸」に誤マッチしないよう、長い姓から順に照合する
+function getSlackMention(staffName: string): string | null {
+  const matched = Object.keys(SLACK_MEMBER_IDS)
+    .sort((a, b) => b.length - a.length)
+    .find((lastName) => staffName.includes(lastName))
+  return matched ? `<@${SLACK_MEMBER_IDS[matched]}>` : null
+}
+
 interface SlackBookingNotification {
   candidateName: string
   candidateEmail: string
@@ -26,11 +48,12 @@ export async function notifySlackNewBooking(data: SlackBookingNotification) {
     fields.push({ title: '🔗 Google Meet', value: `<${data.meetLink}|参加リンク>`, short: true })
   }
 
+  const mention = getSlackMention(data.staffName)
   const payload = {
     attachments: [
       {
         color: '#6366f1',
-        pretext: '🎉 *新しい面談予約が入りました！*',
+        pretext: `${mention ? `${mention} ` : ''}🎉 *新しい面談予約が入りました！*`,
         mrkdwn_in: ['pretext', 'fields'],
         fields,
         footer: 'omoroi schedule',
@@ -74,11 +97,12 @@ export async function notifySlackCancelBooking(data: SlackCancelNotification) {
     fields.push({ title: '🛑 キャンセル元', value: data.cancelledBy, short: true })
   }
 
+  const mention = getSlackMention(data.staffName)
   const payload = {
     attachments: [
       {
         color: '#ef4444',
-        pretext: '❌ *面談予約がキャンセルされました*',
+        pretext: `${mention ? `${mention} ` : ''}❌ *面談予約がキャンセルされました*`,
         mrkdwn_in: ['pretext'],
         fields,
         footer: 'omoroi schedule',
